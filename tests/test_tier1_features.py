@@ -51,12 +51,13 @@ class TestFeature1DBConnectivity:
         assert "utf8" in charset.lower()
 
     def test_f1_04_user_privileges(self, db_query):
-        """Verify the connected MySQL user is 'jacob'."""
+        """Verify the connected MySQL user is the one configured in DB_USER (.env)."""
         res = db_query("SELECT USER() AS u_name;")
         assert res is not None
         assert len(res) == 1
         user_val = str(list(res[0].values())[0])
-        assert "jacob" in user_val
+        from app.config import Config
+        assert user_val.startswith(f"{Config.DB_USER}@")
 
     def test_f1_05_parameterized_query_execution(self, db_query):
         """Verify query executor correctly supports parameterized inputs."""

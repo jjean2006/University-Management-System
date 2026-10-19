@@ -195,7 +195,7 @@
         <label for="indStudentSelect" class="form-label">Select Student *</label>
         <select id="indStudentSelect" name="student_id" class="form-control" required>
           {% for s in students %}
-          <option value="{{ s.student_id }}">
+          <option value="{{ s.student_id }}" data-course-ids="{{ s.course_ids }}">
             {{ s.reg_no }} &mdash; {{ s.first_name }} {{ s.last_name }}
           </option>
           {% endfor %}
@@ -204,7 +204,7 @@
 
       <div>
         <label for="indDate" class="form-label">Lecture Date *</label>
-        <input type="date" id="indDate" name="attendance_date" class="form-control" value="2026-10-19" required>
+        <input type="date" id="indDate" name="attendance_date" class="form-control" value="{{ today }}" max="{{ today }}" required>
       </div>
 
       <div>
@@ -242,7 +242,7 @@
 
       <div style="width: 200px;">
         <label for="attDate" class="form-label">Lecture Date</label>
-        <input type="date" id="attDate" name="attendance_date" class="form-control" value="2026-10-19" required>
+        <input type="date" id="attDate" name="attendance_date" class="form-control" value="{{ today }}" max="{{ today }}" required>
       </div>
     </div>
 
@@ -268,7 +268,7 @@
         </thead>
         <tbody>
           {% for s in students %}
-          <tr>
+          <tr data-course-ids="{{ s.course_ids }}">
             <td class="mono"><strong>{{ s.reg_no }}</strong></td>
             <td>{{ s.first_name }} {{ s.last_name }}</td>
             <td>

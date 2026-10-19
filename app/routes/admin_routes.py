@@ -1,3 +1,4 @@
+import datetime
 import os
 import sys
 
@@ -19,8 +20,26 @@ from flask import (
 from jinja2 import TemplateNotFound
 
 from app.auth import ROLE_ADMIN, role_required
-from app.db import execute_query
+from app.db import execute_query, first_row, transaction
 from app.routes.common import COMMON_STYLES
+from app.validators import (
+    COURSE_CODE_RE,
+    EMAIL_RE,
+    EMPLOYEE_CODE_RE,
+    NAME_RE,
+    PHONE_RE,
+    REG_NO_RE,
+    USERNAME_RE,
+    ValidationError,
+    choice,
+    decimal_range,
+    integer,
+    iso_date,
+    like_pattern,
+    optional_id,
+    password,
+    required_text,
+)
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -194,7 +213,8 @@ def admin_dashboard():
         pass
     try:
         rooms = execute_query(
-            "SELECT hr.room_id, hr.room_number, hb.block_name "
+            "SELECT hr.room_id, hr.room_number, hb.block_name, hb.gender_type, "
+            "(hr.capacity - hr.occupied_beds) AS vacant_beds "
             "FROM HOSTEL_ROOM hr "
             "JOIN HOSTEL_BLOCK hb ON hr.block_id = hb.block_id "
             "ORDER BY hb.block_name, hr.room_number;"
@@ -206,54 +226,79 @@ def admin_dashboard():
     except Exception:
         pass
 
+    # Server-side search across the student directory view and the course catalog
+    search_term = (request.args.get("q") or "").strip()[:100]
+    search_students, search_courses = [], []
+    if search_term:
+        pattern = like_pattern(search_term)
+        try:
+            search_students = execute_query(
+                "SELECT * FROM v_admin_student_directory "
+                "WHERE reg_no LIKE %s OR student_name LIKE %s OR email LIKE %s "
+                "OR programme_name LIKE %s OR dept_name LIKE %s OR faculty_advisor LIKE %s "
+                "ORDER BY reg_no;",
+                (pattern,) * 6,
+            ) or []
+            search_courses = execute_query(
+                "SELECT c.course_code, c.course_title, c.credits, c.capacity, c.available_seats, d.dept_code "
+                "FROM COURSE c JOIN DEPARTMENT d ON c.dept_id = d.dept_id "
+                "WHERE c.course_code LIKE %s OR c.course_title LIKE %s OR d.dept_code LIKE %s "
+                "ORDER BY c.course_code;",
+                (pattern,) * 3,
+            ) or []
+        except Exception as e:
+            flash(f"Search failed: {str(e)}", "danger")
+
+    template_args = dict(
+        depts=depts,
+        progs=progs,
+        faculty=faculty,
+        students=students,
+        waitlists=waitlists,
+        courses=courses,
+        rooms=rooms,
+        all_users=all_users,
+        search_term=search_term,
+        search_students=search_students,
+        search_courses=search_courses,
+    )
     try:
-        return render_template(
-            "admin/dashboard.html",
-            depts=depts,
-            progs=progs,
-            faculty=faculty,
-            students=students,
-            waitlists=waitlists,
-            courses=courses,
-            rooms=rooms,
-            all_users=all_users,
-        ), 200
+        return render_template("admin/dashboard.html", **template_args), 200
     except TemplateNotFound:
-        return render_template_string(
-            ADMIN_DASHBOARD_HTML,
-            depts=depts,
-            progs=progs,
-            faculty=faculty,
-            students=students,
-            waitlists=waitlists,
-            courses=courses,
-            rooms=rooms,
-            all_users=all_users,
-        ), 200
+        return render_template_string(ADMIN_DASHBOARD_HTML, **template_args), 200
+
+
+def _course_fields(form):
+    """Validates the editable course attributes shared by the add and edit forms."""
+    course_title = required_text(form.get("course_title"), "Course title", 100)
+    if len(course_title) < 3:
+        raise ValidationError("Course title must be at least 3 characters.")
+    credits = integer(form.get("credits"), "Credits", min_value=1, max_value=6)
+    capacity = integer(form.get("capacity"), "Capacity", min_value=1, max_value=300)
+    return course_title, credits, capacity
 
 
 @admin_bp.route("/courses/add", methods=["POST"])
 @role_required(ROLE_ADMIN)
 def admin_add_course():
     """Create a new course in the COURSE table."""
-    course_code = (request.form.get("course_code") or "").strip().upper()
-    course_title = (request.form.get("course_title") or "").strip()
-    raw_credits = request.form.get("credits")
-    raw_capacity = request.form.get("capacity")
-    raw_dept_id = request.form.get("dept_id")
-    raw_prereq_id = request.form.get("prereq_course_id")
-
-    if not course_code or not course_title:
-        flash("Course code and title are required.", "danger")
-        return redirect(url_for("admin.admin_dashboard"))
-
     try:
-        credits = int(raw_credits)
-        capacity = int(raw_capacity)
-        dept_id = int(raw_dept_id)
-        prereq_id = int(raw_prereq_id) if raw_prereq_id and raw_prereq_id != "None" else None
-    except (ValueError, TypeError):
-        flash("Invalid numeric value for credits, capacity, or department.", "danger")
+        course_code = required_text(
+            (request.form.get("course_code") or "").upper(), "Course code", 15, COURSE_CODE_RE,
+            "letters followed by digits, e.g. CSE3001",
+        )
+        course_title, credits, capacity = _course_fields(request.form)
+        dept_id = integer(request.form.get("dept_id"), "Department", min_value=1)
+        prereq_id = optional_id(request.form.get("prereq_course_id"), "Prerequisite course")
+
+        if not execute_query("SELECT 1 AS ok FROM DEPARTMENT WHERE dept_id = %s;", (dept_id,), fetch_one=True):
+            raise ValidationError("Selected department does not exist.")
+        if prereq_id and not execute_query("SELECT 1 AS ok FROM COURSE WHERE course_id = %s;", (prereq_id,), fetch_one=True):
+            raise ValidationError("Selected prerequisite course does not exist.")
+        if execute_query("SELECT 1 AS ok FROM COURSE WHERE course_code = %s;", (course_code,), fetch_one=True):
+            raise ValidationError(f"Course code {course_code} already exists.")
+    except ValidationError as e:
+        flash(str(e), "danger")
         return redirect(url_for("admin.admin_dashboard"))
 
     try:
@@ -270,140 +315,250 @@ def admin_add_course():
     return redirect(url_for("admin.admin_dashboard"))
 
 
+@admin_bp.route("/courses/<int:course_id>/edit", methods=["POST"])
+@role_required(ROLE_ADMIN)
+def admin_edit_course(course_id):
+    """Update a course's title, credits and capacity; available seats move with the capacity change."""
+    try:
+        course_title, credits, capacity = _course_fields(request.form)
+        with transaction() as cur:
+            cur.execute(
+                "SELECT course_code, capacity, available_seats FROM COURSE WHERE course_id = %s FOR UPDATE;",
+                (course_id,),
+            )
+            course = first_row(cur)
+            if not course:
+                raise ValidationError("Course not found.")
+            seats_taken = int(course.get("capacity")) - int(course.get("available_seats"))
+            if capacity < seats_taken:
+                raise ValidationError(
+                    f"Capacity cannot be reduced below the {seats_taken} seats already taken in {course.get('course_code')}."
+                )
+            cur.execute(
+                "UPDATE COURSE SET course_title = %s, credits = %s, capacity = %s, available_seats = %s "
+                "WHERE course_id = %s;",
+                (course_title, credits, capacity, capacity - seats_taken, course_id),
+            )
+        flash(f"Course {course.get('course_code')} updated successfully.", "success")
+    except ValidationError as e:
+        flash(str(e), "danger")
+    except Exception as e:
+        flash(f"Failed to update course: {str(e)}", "danger")
+    return redirect(url_for("admin.admin_dashboard"))
+
+
+@admin_bp.route("/courses/<int:course_id>/delete", methods=["POST"])
+@role_required(ROLE_ADMIN)
+def admin_delete_course(course_id):
+    """Delete a course that has no students currently enrolled (cascades to its waitlist and history)."""
+    try:
+        with transaction() as cur:
+            cur.execute("SELECT course_code FROM COURSE WHERE course_id = %s FOR UPDATE;", (course_id,))
+            course = first_row(cur)
+            if not course:
+                raise ValidationError("Course not found.")
+            cur.execute(
+                "SELECT COUNT(*) AS active FROM ENROLLMENT WHERE course_id = %s AND completion_status = 'ENROLLED';",
+                (course_id,),
+            )
+            active = int(first_row(cur).get("active"))
+            if active:
+                raise ValidationError(
+                    f"{course.get('course_code')} has {active} student(s) currently enrolled and cannot be deleted."
+                )
+            # ON DELETE CASCADE removes ENROLLMENT/ATTENDANCE/COURSE_WAITLIST rows;
+            # ON DELETE SET NULL clears prereq_course_id on dependent courses.
+            cur.execute("DELETE FROM COURSE WHERE course_id = %s;", (course_id,))
+        flash(f"Course {course.get('course_code')} deleted.", "success")
+    except ValidationError as e:
+        flash(str(e), "danger")
+    except Exception as e:
+        flash(f"Failed to delete course: {str(e)}", "danger")
+    return redirect(url_for("admin.admin_dashboard"))
+
+
+@admin_bp.route("/students/<int:student_id>/delete", methods=["POST"])
+@role_required(ROLE_ADMIN)
+def admin_delete_student(student_id):
+    """Delete a student, their login, and release their course seats and hostel bed."""
+    try:
+        with transaction() as cur:
+            cur.execute("SELECT reg_no, room_id FROM STUDENT WHERE student_id = %s FOR UPDATE;", (student_id,))
+            student = first_row(cur)
+            if not student:
+                raise ValidationError("Student not found.")
+
+            # Release one seat in every course the student is still taking
+            cur.execute(
+                "UPDATE COURSE c JOIN ENROLLMENT e ON e.course_id = c.course_id "
+                "SET c.available_seats = LEAST(c.capacity, c.available_seats + 1) "
+                "WHERE e.student_id = %s AND e.completion_status = 'ENROLLED';",
+                (student_id,),
+            )
+            if student.get("room_id") is not None:
+                cur.execute(
+                    "UPDATE HOSTEL_ROOM SET occupied_beds = GREATEST(occupied_beds - 1, 0) WHERE room_id = %s;",
+                    (student.get("room_id"),),
+                )
+            cur.execute("DELETE FROM USER_ACCOUNT WHERE role = 'student' AND entity_id = %s;", (student_id,))
+            # ON DELETE CASCADE removes ENROLLMENT, ATTENDANCE, COURSE_WAITLIST and FEE_PAYMENT rows
+            cur.execute("DELETE FROM STUDENT WHERE student_id = %s;", (student_id,))
+        flash(f"Student {student.get('reg_no')} and all related records were deleted.", "success")
+    except ValidationError as e:
+        flash(str(e), "danger")
+    except Exception as e:
+        flash(f"Failed to delete student: {str(e)}", "danger")
+    return redirect(url_for("admin.admin_dashboard"))
+
+
+def _ensure_username_free(cur, username):
+    cur.execute("SELECT 1 AS ok FROM USER_ACCOUNT WHERE UPPER(username) = UPPER(%s);", (username,))
+    if first_row(cur):
+        raise ValidationError(f"A login account with username '{username}' already exists.")
+
+
+def _add_student(form, password):
+    reg_no = required_text((form.get("reg_no") or "").upper(), "Registration number", 15, REG_NO_RE, "format like 25BCE1001")
+    first_name = required_text(form.get("first_name"), "First name", 50, NAME_RE, "letters only")
+    last_name = required_text(form.get("last_name"), "Last name", 50, NAME_RE, "letters only")
+    email = required_text(form.get("email"), "Email", 100, EMAIL_RE, "a valid email address")
+    today = datetime.date.today()
+    day = min(today.day, 28)  # avoids Feb 29 when shifting years
+    dob = iso_date(
+        form.get("dob"), "Date of birth",
+        not_after=datetime.date(today.year - 15, today.month, day),
+        not_before=datetime.date(today.year - 60, today.month, day),
+    )
+    gender = choice((form.get("gender") or "").upper(), "Gender", ("M", "F"))
+    cgpa = decimal_range(form.get("cgpa") or "0", "CGPA", "0.00", "10.00")
+    prog_id = integer(form.get("programme_id"), "Programme", min_value=1)
+    advisor_id = optional_id(form.get("advisor_id"), "Faculty advisor")
+    room_id = optional_id(form.get("room_id"), "Hostel room")
+
+    with transaction() as cur:
+        _ensure_username_free(cur, reg_no)
+        cur.execute("SELECT 1 AS ok FROM STUDENT WHERE reg_no = %s OR email = %s;", (reg_no, email))
+        if first_row(cur):
+            raise ValidationError(f"A student with registration number {reg_no} or email {email} already exists.")
+        cur.execute("SELECT 1 AS ok FROM PROGRAMME WHERE programme_id = %s;", (prog_id,))
+        if not first_row(cur):
+            raise ValidationError("Selected programme does not exist.")
+        if advisor_id:
+            cur.execute("SELECT 1 AS ok FROM FACULTY WHERE faculty_id = %s;", (advisor_id,))
+            if not first_row(cur):
+                raise ValidationError("Selected faculty advisor does not exist.")
+        if room_id:
+            cur.execute(
+                "SELECT hr.room_number, hr.capacity, hr.occupied_beds, hb.gender_type, hb.block_name "
+                "FROM HOSTEL_ROOM hr JOIN HOSTEL_BLOCK hb ON hr.block_id = hb.block_id "
+                "WHERE hr.room_id = %s FOR UPDATE;",
+                (room_id,),
+            )
+            room = first_row(cur)
+            if not room:
+                raise ValidationError("Selected hostel room does not exist.")
+            if room.get("gender_type") != gender:
+                raise ValidationError(f"{room.get('block_name')} does not accept students of gender '{gender}'.")
+            if int(room.get("occupied_beds")) >= int(room.get("capacity")):
+                raise ValidationError(f"Room {room.get('room_number')} is full.")
+            cur.execute("UPDATE HOSTEL_ROOM SET occupied_beds = occupied_beds + 1 WHERE room_id = %s;", (room_id,))
+
+        cur.execute(
+            "INSERT INTO STUDENT (reg_no, first_name, last_name, email, dob, gender, cgpa, programme_id, advisor_id, room_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
+            (reg_no, first_name, last_name, email, dob.isoformat(), gender, cgpa, prog_id, advisor_id, room_id),
+        )
+        cur.execute("SELECT student_id FROM STUDENT WHERE reg_no = %s;", (reg_no,))
+        stu_id = first_row(cur).get("student_id")
+        display_name = f"{first_name} {last_name}"
+        cur.execute(
+            "INSERT INTO USER_ACCOUNT (username, password_hash, role, entity_id, display_name, email) "
+            "VALUES (%s, %s, 'student', %s, %s, %s);",
+            (reg_no, password, stu_id, display_name, email),
+        )
+    return f"Student {display_name} ({reg_no}) successfully added to database and login account created."
+
+
+def _add_faculty(form, password):
+    employee_code = required_text(
+        (form.get("employee_code") or "").upper(), "Employee code", 15, EMPLOYEE_CODE_RE, "format like EMP1004"
+    )
+    first_name = required_text(form.get("first_name_fac") or form.get("first_name"), "First name", 50, NAME_RE, "letters only")
+    last_name = required_text(form.get("last_name_fac") or form.get("last_name"), "Last name", 50, NAME_RE, "letters only")
+    email = required_text(form.get("email_fac") or form.get("email"), "Email", 100, EMAIL_RE, "a valid email address")
+    phone = required_text(form.get("phone"), "Phone number", 15, PHONE_RE, "10 digits")
+    designation = choice(
+        form.get("designation") or "Professor", "Designation",
+        ("Professor", "Associate Professor", "Assistant Professor", "Senior Lecturer"),
+    )
+    dept_id = integer(form.get("dept_id"), "Department", min_value=1)
+
+    with transaction() as cur:
+        _ensure_username_free(cur, employee_code)
+        cur.execute("SELECT 1 AS ok FROM FACULTY WHERE employee_code = %s OR email = %s;", (employee_code, email))
+        if first_row(cur):
+            raise ValidationError(f"A faculty member with code {employee_code} or email {email} already exists.")
+        cur.execute("SELECT 1 AS ok FROM DEPARTMENT WHERE dept_id = %s;", (dept_id,))
+        if not first_row(cur):
+            raise ValidationError("Selected department does not exist.")
+        cur.execute(
+            "INSERT INTO FACULTY (employee_code, first_name, last_name, email, phone, designation, dept_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s);",
+            (employee_code, first_name, last_name, email, phone, designation, dept_id),
+        )
+        cur.execute("SELECT faculty_id FROM FACULTY WHERE employee_code = %s;", (employee_code,))
+        fac_id = first_row(cur).get("faculty_id")
+        display_name = f"{first_name} {last_name}"
+        cur.execute(
+            "INSERT INTO USER_ACCOUNT (username, password_hash, role, entity_id, display_name, email) "
+            "VALUES (%s, %s, 'faculty', %s, %s, %s);",
+            (employee_code, password, fac_id, display_name, email),
+        )
+    return f"Faculty {display_name} ({employee_code}) successfully added to database and login account created."
+
+
+def _add_staff(form, password, role):
+    username = required_text(form.get("username"), "Username", 50, USERNAME_RE, "3-50 letters, digits, '_' or '.'")
+    display_name = (form.get("display_name") or username).strip()[:100]
+    email = required_text(
+        form.get("email_staff") or form.get("email") or f"{username}@vit.ac.in", "Email", 100, EMAIL_RE, "a valid email address"
+    )
+    with transaction() as cur:
+        _ensure_username_free(cur, username)
+        cur.execute(
+            "INSERT INTO USER_ACCOUNT (username, password_hash, role, entity_id, display_name, email) "
+            "VALUES (%s, %s, %s, NULL, %s, %s);",
+            (username, password, role, display_name, email),
+        )
+    return f"{role.capitalize()} user account '{username}' created successfully."
+
+
 @admin_bp.route("/users/add", methods=["POST"])
 @role_required(ROLE_ADMIN)
 def admin_add_user():
-    """Add a user of any role. If an entity table exists (STUDENT or FACULTY), inserts into that table with all required attributes, then creates the login user in USER_ACCOUNT."""
+    """Add a user of any role. Students and faculty are inserted into their entity table and
+    USER_ACCOUNT in one transaction; existing accounts are never overwritten."""
     role = (request.form.get("role") or "").strip().lower()
-    password = (
+    raw_password = (
         request.form.get("password")
         or request.form.get("password_fac")
         or request.form.get("password_staff")
         or ""
-    ).strip()
+    )
 
-    if not role or not password:
-        flash("Role and password are required.", "danger")
-        return redirect(url_for("admin.admin_dashboard"))
-
-    if role == "student":
-        reg_no = (request.form.get("reg_no") or "").strip().upper()
-        first_name = (request.form.get("first_name") or "").strip()
-        last_name = (request.form.get("last_name") or "").strip()
-        email = (request.form.get("email") or "").strip()
-        dob = request.form.get("dob")
-        gender = (request.form.get("gender") or "M").strip().upper()
-        raw_cgpa = request.form.get("cgpa") or "0.00"
-        raw_prog_id = request.form.get("programme_id")
-        raw_advisor_id = request.form.get("advisor_id")
-        raw_room_id = request.form.get("room_id")
-
-        if not reg_no or not first_name or not last_name or not email or not dob or not raw_prog_id:
-            flash("All required student attributes (Reg No, First Name, Last Name, Email, DOB, Programme) must be provided.", "danger")
-            return redirect(url_for("admin.admin_dashboard"))
-
-        try:
-            cgpa = float(raw_cgpa)
-            prog_id = int(raw_prog_id)
-            advisor_id = int(raw_advisor_id) if raw_advisor_id and raw_advisor_id != "None" else None
-            room_id = int(raw_room_id) if raw_room_id and raw_room_id != "None" else None
-        except (ValueError, TypeError):
-            flash("Invalid numeric value for CGPA, programme, advisor, or room.", "danger")
-            return redirect(url_for("admin.admin_dashboard"))
-
-        try:
-            # 1. Insert into STUDENT table
-            execute_query(
-                "INSERT INTO STUDENT (reg_no, first_name, last_name, email, dob, gender, cgpa, programme_id, advisor_id, room_id) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
-                (reg_no, first_name, last_name, email, dob, gender, cgpa, prog_id, advisor_id, room_id),
-                commit=True,
-            )
-            # Retrieve newly inserted student_id
-            stu_row = execute_query("SELECT student_id FROM STUDENT WHERE reg_no = %s;", (reg_no,), fetch_one=True)
-            stu_id = stu_row.get("student_id") if stu_row else None
-
-            # 2. Insert into USER_ACCOUNT
-            display_name = f"{first_name} {last_name}".strip()
-            execute_query(
-                "INSERT INTO USER_ACCOUNT (username, password_hash, role, entity_id, display_name, email) "
-                "VALUES (%s, %s, %s, %s, %s, %s) "
-                "ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = VALUES(role), entity_id = VALUES(entity_id), display_name = VALUES(display_name);",
-                (reg_no, password, "student", stu_id, display_name, email),
-                commit=True,
-            )
-            flash(f"Student {display_name} ({reg_no}) successfully added to database and login account created.", "success")
-        except Exception as e:
-            flash(f"Failed to add student: {str(e)}", "danger")
-
-    elif role == "faculty":
-        employee_code = (request.form.get("employee_code") or "").strip().upper()
-        first_name = (request.form.get("first_name_fac") or request.form.get("first_name") or "").strip()
-        last_name = (request.form.get("last_name_fac") or request.form.get("last_name") or "").strip()
-        email = (request.form.get("email_fac") or request.form.get("email") or "").strip()
-        phone = (request.form.get("phone") or "").strip()
-        designation = (request.form.get("designation") or "Professor").strip()
-        raw_dept_id = request.form.get("dept_id")
-
-        if not employee_code or not first_name or not last_name or not email or not phone or not raw_dept_id:
-            flash("All required faculty attributes (Employee Code, Name, Email, Phone, Department) must be provided.", "danger")
-            return redirect(url_for("admin.admin_dashboard"))
-
-        try:
-            dept_id = int(raw_dept_id)
-        except (ValueError, TypeError):
-            flash("Invalid department selection.", "danger")
-            return redirect(url_for("admin.admin_dashboard"))
-
-        try:
-            # 1. Insert into FACULTY table
-            execute_query(
-                "INSERT INTO FACULTY (employee_code, first_name, last_name, email, phone, designation, dept_id) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s);",
-                (employee_code, first_name, last_name, email, phone, designation, dept_id),
-                commit=True,
-            )
-            # Retrieve newly inserted faculty_id
-            fac_row = execute_query("SELECT faculty_id FROM FACULTY WHERE employee_code = %s;", (employee_code,), fetch_one=True)
-            fac_id = fac_row.get("faculty_id") if fac_row else None
-
-            # 2. Insert into USER_ACCOUNT
-            display_name = f"{first_name} {last_name}".strip()
-            execute_query(
-                "INSERT INTO USER_ACCOUNT (username, password_hash, role, entity_id, display_name, email) "
-                "VALUES (%s, %s, %s, %s, %s, %s) "
-                "ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = VALUES(role), entity_id = VALUES(entity_id), display_name = VALUES(display_name);",
-                (employee_code, password, "faculty", fac_id, display_name, email),
-                commit=True,
-            )
-            flash(f"Faculty {display_name} ({employee_code}) successfully added to database and login account created.", "success")
-        except Exception as e:
-            flash(f"Failed to add faculty: {str(e)}", "danger")
-
-    elif role in ("admin", "accounts", "warden"):
-        username = (request.form.get("username") or "").strip()
-        display_name = (request.form.get("display_name") or username).strip()
-        email = (request.form.get("email_staff") or request.form.get("email") or f"{username}@vit.ac.in").strip()
-
-        if not username:
-            flash("Username is required.", "danger")
-            return redirect(url_for("admin.admin_dashboard"))
-
-        try:
-            execute_query(
-                "INSERT INTO USER_ACCOUNT (username, password_hash, role, entity_id, display_name, email) "
-                "VALUES (%s, %s, %s, NULL, %s, %s) "
-                "ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = VALUES(role), display_name = VALUES(display_name), email = VALUES(email);",
-                (username, password, role, display_name, email),
-                commit=True,
-            )
-            flash(f"{role.capitalize()} user account '{username}' created successfully.", "success")
-        except Exception as e:
-            flash(f"Failed to create user account: {str(e)}", "danger")
-
-    else:
-        flash(f"Unsupported role: {role}", "danger")
+    try:
+        role = choice(role, "Role", ("student", "faculty", "admin", "accounts", "warden"))
+        pwd = password(raw_password)
+        if role == "student":
+            message = _add_student(request.form, pwd)
+        elif role == "faculty":
+            message = _add_faculty(request.form, pwd)
+        else:
+            message = _add_staff(request.form, pwd, role)
+        flash(message, "success")
+    except ValidationError as e:
+        flash(str(e), "danger")
+    except Exception as e:
+        flash(f"Failed to add {role or 'user'}: {str(e)}", "danger")
 
     return redirect(url_for("admin.admin_dashboard"))
-
-

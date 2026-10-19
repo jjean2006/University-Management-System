@@ -349,7 +349,7 @@ class TestDomainBoundaries:
         """Verify composite PK (student_id, course_id) in ENROLLMENT prevents duplicate enrollment."""
         # Check information_schema for primary key columns
         rows = db_query(
-            "SELECT column_name FROM information_schema.key_column_usage "
+            "SELECT column_name AS column_name FROM information_schema.key_column_usage "
             "WHERE table_schema = 'university_db' AND table_name = 'ENROLLMENT' AND constraint_name = 'PRIMARY' "
             "ORDER BY ordinal_position;"
         )
@@ -417,7 +417,7 @@ class TestDomainBoundaries:
     def test_b3_27_duplicate_department_code_rejected(self, db_query):
         """Verify uk_dept_code unique key exists on DEPARTMENT."""
         rows = db_query(
-            "SELECT column_name FROM information_schema.table_constraints tc "
+            "SELECT column_name AS column_name FROM information_schema.table_constraints tc "
             "JOIN information_schema.key_column_usage kcu USING (constraint_name, table_schema, table_name) "
             "WHERE tc.table_schema = 'university_db' AND tc.table_name = 'DEPARTMENT' AND tc.constraint_type = 'UNIQUE';"
         )
@@ -427,7 +427,7 @@ class TestDomainBoundaries:
     def test_b3_28_duplicate_programme_code_rejected(self, db_query):
         """Verify uk_programme_code unique key exists on PROGRAMME."""
         rows = db_query(
-            "SELECT column_name FROM information_schema.table_constraints tc "
+            "SELECT column_name AS column_name FROM information_schema.table_constraints tc "
             "JOIN information_schema.key_column_usage kcu USING (constraint_name, table_schema, table_name) "
             "WHERE tc.table_schema = 'university_db' AND tc.table_name = 'PROGRAMME' AND tc.constraint_type = 'UNIQUE';"
         )
@@ -437,7 +437,7 @@ class TestDomainBoundaries:
     def test_b3_29_duplicate_faculty_employee_code_rejected(self, db_query):
         """Verify uk_faculty_emp_code unique key exists on FACULTY."""
         rows = db_query(
-            "SELECT column_name FROM information_schema.table_constraints tc "
+            "SELECT column_name AS column_name FROM information_schema.table_constraints tc "
             "JOIN information_schema.key_column_usage kcu USING (constraint_name, table_schema, table_name) "
             "WHERE tc.table_schema = 'university_db' AND tc.table_name = 'FACULTY' AND tc.constraint_type = 'UNIQUE';"
         )
@@ -447,7 +447,7 @@ class TestDomainBoundaries:
     def test_b3_30_duplicate_faculty_email_rejected(self, db_query):
         """Verify uk_faculty_email unique key exists on FACULTY."""
         rows = db_query(
-            "SELECT column_name FROM information_schema.table_constraints tc "
+            "SELECT column_name AS column_name FROM information_schema.table_constraints tc "
             "JOIN information_schema.key_column_usage kcu USING (constraint_name, table_schema, table_name) "
             "WHERE tc.table_schema = 'university_db' AND tc.table_name = 'FACULTY' AND tc.constraint_type = 'UNIQUE';"
         )
@@ -457,7 +457,7 @@ class TestDomainBoundaries:
     def test_b3_31_duplicate_course_code_rejected(self, db_query):
         """Verify uk_course_code unique key exists on COURSE."""
         rows = db_query(
-            "SELECT column_name FROM information_schema.table_constraints tc "
+            "SELECT column_name AS column_name FROM information_schema.table_constraints tc "
             "JOIN information_schema.key_column_usage kcu USING (constraint_name, table_schema, table_name) "
             "WHERE tc.table_schema = 'university_db' AND tc.table_name = 'COURSE' AND tc.constraint_type = 'UNIQUE';"
         )
@@ -467,7 +467,7 @@ class TestDomainBoundaries:
     def test_b3_32_duplicate_hostel_block_name_rejected(self, db_query):
         """Verify uk_block_name unique key exists on HOSTEL_BLOCK."""
         rows = db_query(
-            "SELECT column_name FROM information_schema.table_constraints tc "
+            "SELECT column_name AS column_name FROM information_schema.table_constraints tc "
             "JOIN information_schema.key_column_usage kcu USING (constraint_name, table_schema, table_name) "
             "WHERE tc.table_schema = 'university_db' AND tc.table_name = 'HOSTEL_BLOCK' AND tc.constraint_type = 'UNIQUE';"
         )
@@ -485,7 +485,7 @@ class TestDomainBoundaries:
     def test_b3_34_duplicate_student_reg_no_rejected(self, db_query):
         """Verify uk_student_reg_no unique key exists on STUDENT."""
         rows = db_query(
-            "SELECT column_name FROM information_schema.table_constraints tc "
+            "SELECT column_name AS column_name FROM information_schema.table_constraints tc "
             "JOIN information_schema.key_column_usage kcu USING (constraint_name, table_schema, table_name) "
             "WHERE tc.table_schema = 'university_db' AND tc.table_name = 'STUDENT' AND tc.constraint_type = 'UNIQUE';"
         )
@@ -495,7 +495,7 @@ class TestDomainBoundaries:
     def test_b3_35_duplicate_student_email_rejected(self, db_query):
         """Verify uk_student_email unique key exists on STUDENT."""
         rows = db_query(
-            "SELECT column_name FROM information_schema.table_constraints tc "
+            "SELECT column_name AS column_name FROM information_schema.table_constraints tc "
             "JOIN information_schema.key_column_usage kcu USING (constraint_name, table_schema, table_name) "
             "WHERE tc.table_schema = 'university_db' AND tc.table_name = 'STUDENT' AND tc.constraint_type = 'UNIQUE';"
         )
@@ -505,7 +505,7 @@ class TestDomainBoundaries:
     def test_b3_36_duplicate_invoice_no_rejected(self, db_query):
         """Verify uk_invoice_no unique key exists on FEE_PAYMENT."""
         rows = db_query(
-            "SELECT column_name FROM information_schema.table_constraints tc "
+            "SELECT column_name AS column_name FROM information_schema.table_constraints tc "
             "JOIN information_schema.key_column_usage kcu USING (constraint_name, table_schema, table_name) "
             "WHERE tc.table_schema = 'university_db' AND tc.table_name = 'FEE_PAYMENT' AND tc.constraint_type = 'UNIQUE';"
         )

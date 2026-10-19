@@ -19,8 +19,9 @@ from flask import (
 from jinja2 import TemplateNotFound
 
 from app.auth import ROLE_STUDENT, get_current_user, role_required
-from app.db import execute_query
+from app.db import execute_query, first_row, transaction
 from app.routes.common import COMMON_STYLES
+from app.validators import ValidationError, integer
 
 student_bp = Blueprint("student", __name__, url_prefix="/student")
 
@@ -299,78 +300,116 @@ def student_dashboard():
 @student_bp.route("/courses/enroll", methods=["POST"])
 @role_required(ROLE_STUDENT)
 def student_enroll_course():
-    """Enroll student into an available course offering."""
+    """Enroll student into an available course offering (single transaction with a row lock on the course)."""
     user = get_current_user()
     stu_id = user.get("entity_id") or 1
-    raw_course_id = request.form.get("course_id")
     try:
-        course_id = int(raw_course_id)
-    except (TypeError, ValueError):
+        course_id = integer(request.form.get("course_id"), "Course", min_value=1)
+    except ValidationError:
         flash("Invalid course selection.", "danger")
         return redirect(url_for("student.student_dashboard"))
 
-    # Check if already enrolled
-    existing = execute_query(
-        "SELECT * FROM ENROLLMENT WHERE student_id = %s AND course_id = %s;",
-        (stu_id, course_id),
-        fetch_one=True,
-    )
-    if existing:
-        flash("You are already enrolled in this course.", "warning")
-        return redirect(url_for("student.student_dashboard"))
-
-    # Check prerequisite
-    course = execute_query(
-        "SELECT c.*, p.course_code AS prereq_code FROM COURSE c LEFT JOIN COURSE p ON c.prereq_course_id = p.course_id WHERE c.course_id = %s;",
-        (course_id,),
-        fetch_one=True,
-    )
-    if not course:
-        flash("Course not found.", "danger")
-        return redirect(url_for("student.student_dashboard"))
-
-    prereq_id = course.get("prereq_course_id")
-    if prereq_id:
-        prereq_completed = execute_query(
-            "SELECT * FROM ENROLLMENT WHERE student_id = %s AND course_id = %s AND completion_status = 'COMPLETED';",
-            (stu_id, prereq_id),
-            fetch_one=True,
-        )
-        if not prereq_completed:
-            prereq_name = course.get("prereq_code") or f"Course #{prereq_id}"
-            flash(f"Prerequisite course {prereq_name} must be completed before enrolling in {course.get('course_code')}.", "danger")
-            return redirect(url_for("student.student_dashboard"))
-
-    # Check seat capacity
-    avail = int(course.get("available_seats") or 0)
-    if avail <= 0:
-        flash(f"{course.get('course_code')} has no available seats. You can join the waitlist instead.", "warning")
-        return redirect(url_for("student.student_dashboard"))
-
-    # Find active semester
-    sem = execute_query("SELECT semester_id FROM SEMESTER WHERE is_active = 1 LIMIT 1;", fetch_one=True)
-    semester_id = sem.get("semester_id") if sem else 1
-
     try:
-        execute_query(
-            "INSERT INTO ENROLLMENT (student_id, course_id, semester_id, enrollment_date, completion_status) "
-            "VALUES (%s, %s, %s, CURDATE(), 'ENROLLED');",
-            (stu_id, course_id, semester_id),
-            commit=True,
-        )
-        execute_query(
-            "UPDATE COURSE SET available_seats = available_seats - 1 WHERE course_id = %s;",
-            (course_id,),
-            commit=True,
-        )
-        execute_query(
-            "DELETE FROM COURSE_WAITLIST WHERE student_id = %s AND course_id = %s;",
-            (stu_id, course_id),
-            commit=True,
-        )
-        flash(f"Successfully signed up for {course.get('course_code')} &mdash; {course.get('course_title')}!", "success")
+        with transaction() as cur:
+            # Lock the course row so two students cannot take the last seat at the same time
+            cur.execute(
+                "SELECT c.course_id, c.course_code, c.course_title, c.available_seats, c.prereq_course_id, "
+                "p.course_code AS prereq_code "
+                "FROM COURSE c LEFT JOIN COURSE p ON c.prereq_course_id = p.course_id "
+                "WHERE c.course_id = %s FOR UPDATE;",
+                (course_id,),
+            )
+            course = first_row(cur)
+            if not course:
+                raise ValidationError("Course not found.")
+
+            cur.execute(
+                "SELECT completion_status FROM ENROLLMENT WHERE student_id = %s AND course_id = %s;",
+                (stu_id, course_id),
+            )
+            if first_row(cur):
+                raise ValidationError("You are already enrolled in this course.")
+
+            prereq_id = course.get("prereq_course_id")
+            if prereq_id:
+                cur.execute(
+                    "SELECT 1 AS ok FROM ENROLLMENT WHERE student_id = %s AND course_id = %s AND completion_status = 'COMPLETED';",
+                    (stu_id, prereq_id),
+                )
+                if not first_row(cur):
+                    prereq_name = course.get("prereq_code") or f"Course #{prereq_id}"
+                    raise ValidationError(
+                        f"Prerequisite course {prereq_name} must be completed before enrolling in {course.get('course_code')}."
+                    )
+
+            if int(course.get("available_seats") or 0) <= 0:
+                raise ValidationError(f"{course.get('course_code')} has no available seats. You can join the waitlist instead.")
+
+            cur.execute("SELECT semester_id FROM SEMESTER WHERE is_active = 1 LIMIT 1;")
+            sem = first_row(cur)
+            semester_id = sem.get("semester_id") if sem else 1
+
+            cur.execute(
+                "INSERT INTO ENROLLMENT (student_id, course_id, semester_id, enrollment_date, completion_status) "
+                "VALUES (%s, %s, %s, CURDATE(), 'ENROLLED');",
+                (stu_id, course_id, semester_id),
+            )
+            cur.execute(
+                "UPDATE COURSE SET available_seats = available_seats - 1 WHERE course_id = %s;",
+                (course_id,),
+            )
+            cur.execute(
+                "DELETE FROM COURSE_WAITLIST WHERE student_id = %s AND course_id = %s;",
+                (stu_id, course_id),
+            )
+        flash(f"Successfully signed up for {course.get('course_code')} — {course.get('course_title')}!", "success")
+    except ValidationError as e:
+        flash(str(e), "warning")
     except Exception as e:
         flash(f"Failed to enroll in course: {str(e)}", "danger")
+
+    return redirect(url_for("student.student_dashboard"))
+
+
+@student_bp.route("/courses/drop", methods=["POST"])
+@role_required(ROLE_STUDENT)
+def student_drop_course():
+    """Drop an in-progress course: deletes the enrollment and its attendance, and releases the seat."""
+    user = get_current_user()
+    stu_id = user.get("entity_id") or 1
+    try:
+        course_id = integer(request.form.get("course_id"), "Course", min_value=1)
+    except ValidationError:
+        flash("Invalid course selection.", "danger")
+        return redirect(url_for("student.student_dashboard"))
+
+    try:
+        with transaction() as cur:
+            cur.execute(
+                "SELECT e.completion_status, c.course_code FROM ENROLLMENT e "
+                "JOIN COURSE c ON e.course_id = c.course_id "
+                "WHERE e.student_id = %s AND e.course_id = %s FOR UPDATE;",
+                (stu_id, course_id),
+            )
+            enrollment = first_row(cur)
+            if not enrollment:
+                raise ValidationError("You are not enrolled in this course.")
+            if enrollment.get("completion_status") != "ENROLLED":
+                raise ValidationError(
+                    f"{enrollment.get('course_code')} is already {enrollment.get('completion_status')} and cannot be dropped."
+                )
+
+            cur.execute("DELETE FROM ATTENDANCE WHERE student_id = %s AND course_id = %s;", (stu_id, course_id))
+            cur.execute("DELETE FROM ENROLLMENT WHERE student_id = %s AND course_id = %s;", (stu_id, course_id))
+            cur.execute(
+                "UPDATE COURSE SET available_seats = LEAST(capacity, available_seats + 1) WHERE course_id = %s;",
+                (course_id,),
+            )
+        flash(f"Dropped {enrollment.get('course_code')}. Your seat has been released.", "success")
+    except ValidationError as e:
+        flash(str(e), "warning")
+    except Exception as e:
+        flash(f"Failed to drop course: {str(e)}", "danger")
 
     return redirect(url_for("student.student_dashboard"))
 
@@ -378,54 +417,65 @@ def student_enroll_course():
 @student_bp.route("/courses/waitlist", methods=["POST"])
 @role_required(ROLE_STUDENT)
 def student_waitlist_course():
-    """Add student to waitlist for a full course."""
+    """Add student to the waitlist of a full course."""
     user = get_current_user()
     stu_id = user.get("entity_id") or 1
-    raw_course_id = request.form.get("course_id")
     try:
-        course_id = int(raw_course_id)
-    except (TypeError, ValueError):
+        course_id = integer(request.form.get("course_id"), "Course", min_value=1)
+    except ValidationError:
         flash("Invalid course selection.", "danger")
         return redirect(url_for("student.student_dashboard"))
 
-    enrolled = execute_query(
-        "SELECT * FROM ENROLLMENT WHERE student_id = %s AND course_id = %s;",
-        (stu_id, course_id),
-        fetch_one=True,
-    )
-    if enrolled:
-        flash("You are already enrolled in this course.", "info")
-        return redirect(url_for("student.student_dashboard"))
-
-    existing = execute_query(
-        "SELECT * FROM COURSE_WAITLIST WHERE student_id = %s AND course_id = %s AND status = 'ACTIVE';",
-        (stu_id, course_id),
-        fetch_one=True,
-    )
-    if existing:
-        flash(f"You are already on the waitlist at priority position #{existing.get('priority_position')}.", "warning")
-        return redirect(url_for("student.student_dashboard"))
-
-    pos_row = execute_query(
-        "SELECT COALESCE(MAX(priority_position), 0) + 1 AS next_pos FROM COURSE_WAITLIST WHERE course_id = %s AND status = 'ACTIVE';",
-        (course_id,),
-        fetch_one=True,
-    )
-    next_pos = int(pos_row.get("next_pos") if pos_row else 1)
-
-    course = execute_query("SELECT course_code, course_title FROM COURSE WHERE course_id = %s;", (course_id,), fetch_one=True)
-    c_code = course.get("course_code") if course else f"Course #{course_id}"
-
     try:
-        execute_query(
-            "INSERT INTO COURSE_WAITLIST (student_id, course_id, waitlist_time, priority_position, status) "
-            "VALUES (%s, %s, NOW(), %s, 'ACTIVE');",
-            (stu_id, course_id, next_pos),
-            commit=True,
-        )
+        with transaction() as cur:
+            cur.execute(
+                "SELECT course_code, available_seats FROM COURSE WHERE course_id = %s FOR UPDATE;",
+                (course_id,),
+            )
+            course = first_row(cur)
+            if not course:
+                raise ValidationError("Course not found.")
+            c_code = course.get("course_code")
+
+            cur.execute("SELECT 1 AS ok FROM ENROLLMENT WHERE student_id = %s AND course_id = %s;", (stu_id, course_id))
+            if first_row(cur):
+                raise ValidationError("You are already enrolled in this course.")
+
+            if int(course.get("available_seats") or 0) > 0:
+                raise ValidationError(f"{c_code} still has open seats — enroll directly instead of joining the waitlist.")
+
+            cur.execute(
+                "SELECT waitlist_id, status, priority_position FROM COURSE_WAITLIST WHERE student_id = %s AND course_id = %s;",
+                (stu_id, course_id),
+            )
+            existing = first_row(cur)
+            if existing and existing.get("status") == "ACTIVE":
+                raise ValidationError(f"You are already on the waitlist at priority position #{existing.get('priority_position')}.")
+
+            cur.execute(
+                "SELECT COALESCE(MAX(priority_position), 0) + 1 AS next_pos FROM COURSE_WAITLIST "
+                "WHERE course_id = %s AND status = 'ACTIVE';",
+                (course_id,),
+            )
+            next_pos = int(first_row(cur).get("next_pos"))
+
+            if existing:
+                # Re-join after an earlier entry was closed (UNIQUE(student_id, course_id) forbids a second row)
+                cur.execute(
+                    "UPDATE COURSE_WAITLIST SET status = 'ACTIVE', priority_position = %s, waitlist_time = NOW(3) "
+                    "WHERE waitlist_id = %s;",
+                    (next_pos, existing.get("waitlist_id")),
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO COURSE_WAITLIST (student_id, course_id, waitlist_time, priority_position, status) "
+                    "VALUES (%s, %s, NOW(3), %s, 'ACTIVE');",
+                    (stu_id, course_id, next_pos),
+                )
         flash(f"Successfully joined waitlist for {c_code} at priority position #{next_pos}.", "success")
+    except ValidationError as e:
+        flash(str(e), "warning")
     except Exception as e:
         flash(f"Failed to join waitlist: {str(e)}", "danger")
 
     return redirect(url_for("student.student_dashboard"))
-

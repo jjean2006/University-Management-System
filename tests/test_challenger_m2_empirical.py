@@ -9,7 +9,6 @@ Adversarially tests:
 """
 
 import pytest
-from werkzeug.test import ClientRedirectError
 
 
 class TestUnauthenticatedProtection:
@@ -354,16 +353,11 @@ class TestSessionLifecycleAndLogout:
         assert client.get("/admin/dashboard", follow_redirects=False).status_code == 403
 
 
-class TestVulnerabilityReproductions:
-    """Empirical proofs of concrete vulnerabilities identified in the authentication system."""
+class TestVulnerabilityRegressions:
+    """Regression tests for authentication vulnerabilities found earlier and since fixed."""
 
-    def test_vuln1_open_redirect_backslash_bypass_reproduced(self, client):
-        """VULNERABILITY REPRODUCTION 1: Open redirect via backslash bypass (e.g. /\\attacker.com).
-
-        The validation check `next_url.startswith('/') and not next_url.startswith('//')`
-        fails to reject `/\\attacker.com` because the second character is a backslash `\\`.
-        Browsers normalize `/\\` into `//`, directing victim users to an external attacker domain.
-        """
+    def test_vuln1_open_redirect_backslash_bypass_blocked(self, client):
+        """Open redirect via backslash (/\\attacker.com) must fall back to the role dashboard."""
         payload = "/\\attacker.com"
         res = client.post(
             "/login",
@@ -371,31 +365,16 @@ class TestVulnerabilityReproductions:
             follow_redirects=False,
         )
         assert res.status_code == 302
-        location = res.headers.get("Location", "")
-        # EMPIRICAL PROOF OF DEFECT:
-        # Instead of falling back safely to "/admin/dashboard", the server permits the external redirect:
-        is_vulnerable = (location == "/%5Cattacker.com" or location == "/\\attacker.com")
-        assert is_vulnerable, (
-            f"Expected reproduction of open redirect defect with Location: /%5Cattacker.com, got: {location}"
-        )
+        assert res.headers.get("Location", "") == "/admin/dashboard"
 
-    def test_vuln2_corrupted_role_session_infinite_redirect_loop_reproduced(self, client):
-        """VULNERABILITY REPRODUCTION 2: Infinite 302 redirect loop on invalid/corrupted session role.
-
-        When a user session has `logged_in: True` but `role: None` or an unrecognized role:
-        `is_authenticated()` returns True.
-        `ROLE_DASHBOARD_ROUTES.get(role, '/login')` resolves to `'/login'`.
-        `/login` then redirects back to `'/login'`, producing a cyclical HTTP 302 loop.
-        """
+    def test_vuln2_corrupted_role_session_no_redirect_loop(self, client):
+        """A session with logged_in=True but no role must be cleared and show the login page (no 302 loop)."""
         with client.session_transaction() as sess:
             sess["logged_in"] = True
             sess["user_id"] = 100
             sess["username"] = "corrupted_session_user"
-            sess["role"] = None  # Corrupted or unassigned role
+            sess["role"] = None
 
-        # EMPIRICAL PROOF OF DEFECT:
-        # Following redirects will raise ClientRedirectError due to cyclical redirect loop
-        with pytest.raises(ClientRedirectError) as exc_info:
-            client.get("/login", follow_redirects=True)
-
-        assert "Loop detected: A 302 redirect to /login was already made." in str(exc_info.value)
+        res = client.get("/login", follow_redirects=True)
+        assert res.status_code == 200
+        assert b"Sign In" in res.data or b"sign in" in res.data.lower()

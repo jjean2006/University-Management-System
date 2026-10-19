@@ -103,6 +103,7 @@
           <th>Credits</th>
           <th>Enrollment Status</th>
           <th>Grade Points</th>
+          <th>Action</th>
         </tr>
       </thead>
       <tbody>
@@ -123,9 +124,20 @@
               <span style="color: var(--text-secondary);">&mdash;</span>
             {% endif %}
           </td>
+          <td>
+            {% if c.completion_status == 'ENROLLED' %}
+            <form method="POST" action="/student/courses/drop" style="margin: 0;"
+                  onsubmit="return confirm('Drop {{ c.course_code }}? Your attendance records for this course will be deleted.');">
+              <input type="hidden" name="course_id" value="{{ c.course_id }}">
+              <button type="submit" class="btn btn-secondary btn-sm">Drop Course</button>
+            </form>
+            {% else %}
+            <span style="color: var(--text-secondary); font-size: 12px;">&mdash;</span>
+            {% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No courses currently enrolled.</td></tr>
+        <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No courses currently enrolled.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -274,6 +286,8 @@
             <span class="badge badge-paid">PAID</span>
             {% elif p_status == 'PARTIAL' %}
             <span class="badge badge-partial">PARTIAL</span>
+            {% elif p_status == 'PENDING' %}
+            <span class="badge badge-warning">PENDING</span>
             {% else %}
             <span class="badge badge-overdue">OVERDUE</span>
             {% endif %}

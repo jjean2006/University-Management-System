@@ -5,6 +5,28 @@ Provides database connection parameters and environment fallbacks.
 
 import os
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def load_env_file(path=os.path.join(PROJECT_ROOT, ".env")):
+    """Loads KEY=VALUE lines from the project's .env file into os.environ.
+
+    Each team member keeps their own MySQL credentials in .env (git-ignored);
+    variables already set in the shell take precedence over the file.
+    """
+    if not os.path.isfile(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+load_env_file()
+
 
 class Config:
     """Base application and database configuration."""

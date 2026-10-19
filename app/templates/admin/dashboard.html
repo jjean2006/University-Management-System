@@ -42,6 +42,68 @@
   </div>
 </div>
 
+<!-- Server-side Search (SQL LIKE over v_admin_student_directory and COURSE) -->
+<div class="card">
+  <div class="card-header">
+    <h3>Search Students &amp; Courses</h3>
+    <div class="header-meta">Runs a SQL <code class="mono">LIKE</code> query on the server</div>
+  </div>
+
+  <form method="GET" action="/admin/dashboard" style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
+    <input type="text" name="q" class="form-control" style="flex: 1; min-width: 240px;" maxlength="100"
+           placeholder="Reg No, name, email, programme, department, advisor, course code or title" value="{{ search_term }}">
+    <button type="submit" class="btn btn-primary">Search</button>
+    {% if search_term %}<a href="/admin/dashboard" class="btn btn-secondary">Clear</a>{% endif %}
+  </form>
+
+  {% if search_term %}
+  <p style="margin-top: 14px; font-size: 13px; color: var(--text-secondary);">
+    Results for <strong>&ldquo;{{ search_term }}&rdquo;</strong>: {{ search_students | length }} student(s), {{ search_courses | length }} course(s)
+  </p>
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr><th>Registration No</th><th>Student Name</th><th>Email</th><th>Programme</th><th>Advisor</th><th>CGPA</th></tr>
+      </thead>
+      <tbody>
+        {% for s in search_students %}
+        <tr>
+          <td class="mono"><strong>{{ s.reg_no }}</strong></td>
+          <td>{{ s.student_name }}</td>
+          <td class="mono">{{ s.email }}</td>
+          <td>{{ s.programme_name }}</td>
+          <td>{{ s.faculty_advisor or '—' }}</td>
+          <td class="mono">{{ s.cgpa }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No matching students.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-responsive" style="margin-top: 12px;">
+    <table>
+      <thead>
+        <tr><th>Course Code</th><th>Course Title</th><th>Dept</th><th>Credits</th><th>Seats Available</th></tr>
+      </thead>
+      <tbody>
+        {% for c in search_courses %}
+        <tr>
+          <td class="mono"><strong>{{ c.course_code }}</strong></td>
+          <td>{{ c.course_title }}</td>
+          <td class="mono">{{ c.dept_code }}</td>
+          <td class="mono">{{ c.credits }}</td>
+          <td class="mono">{{ c.available_seats }} / {{ c.capacity }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No matching courses.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
 <!-- Departments Table -->
 <div class="card">
   <div class="card-header">
@@ -185,6 +247,7 @@
           <th data-sortable>Degree Programme</th>
           <th data-sortable>Academic Department</th>
           <th data-sortable>Cumulative GPA (CGPA)</th>
+          <th>Action</th>
         </tr>
       </thead>
       <tbody>
@@ -199,9 +262,15 @@
               {{ s.cgpa }}
             </span>
           </td>
+          <td>
+            <form method="POST" action="/admin/students/{{ s.student_id }}/delete" style="margin: 0;"
+                  onsubmit="return confirm('Delete student {{ s.reg_no }}? This also deletes their login, enrollments, attendance, waitlist entries and fee records.');">
+              <button type="submit" class="btn btn-secondary btn-sm">Delete</button>
+            </form>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No student directory records found.</td></tr>
+        <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No student directory records found.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -259,6 +328,59 @@
 
     <button type="submit" class="btn btn-primary">Create Course Offering</button>
   </form>
+</div>
+
+<!-- Manage Course Offerings (Update / Delete) -->
+<div class="card">
+  <div class="card-header">
+    <h3>Manage Course Offerings</h3>
+    <div class="header-meta">Edit updates <code class="mono">COURSE</code> &bull; Delete is blocked while students are enrolled</div>
+  </div>
+
+  <div class="table-responsive">
+    <table id="tblManageCourses">
+      <thead>
+        <tr>
+          <th>Course Code</th>
+          <th>Course Title</th>
+          <th>Credits</th>
+          <th>Capacity</th>
+          <th>Seats Taken</th>
+          <th style="min-width: 260px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in courses %}
+        <tr>
+          <td class="mono"><strong>{{ c.course_code }}</strong></td>
+          <td>{{ c.course_title }}</td>
+          <td class="mono">{{ c.credits }}</td>
+          <td class="mono">{{ c.capacity }}</td>
+          <td class="mono">{{ (c.capacity | int) - (c.available_seats | int) }}</td>
+          <td>
+            <details>
+              <summary class="btn btn-secondary btn-sm" style="display: inline-block;">Edit</summary>
+              <form method="POST" action="/admin/courses/{{ c.course_id }}/edit" style="display: grid; gap: 8px; margin-top: 8px;">
+                <input type="text" name="course_title" class="form-control" value="{{ c.course_title }}" maxlength="100" required>
+                <div style="display: flex; gap: 8px;">
+                  <input type="number" name="credits" class="form-control" value="{{ c.credits }}" min="1" max="6" required title="Credits">
+                  <input type="number" name="capacity" class="form-control" value="{{ c.capacity }}" min="1" max="300" required title="Capacity">
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Save Changes</button>
+              </form>
+            </details>
+            <form method="POST" action="/admin/courses/{{ c.course_id }}/delete" style="margin: 6px 0 0;"
+                  onsubmit="return confirm('Delete course {{ c.course_code }}?');">
+              <button type="submit" class="btn btn-secondary btn-sm">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No courses found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <!-- Course Catalog & Waitlists View Table -->
@@ -393,7 +515,7 @@
           <select id="stu_room" name="room_id" class="form-control">
             <option value="">Day Scholar (Non-Resident)</option>
             {% for r in rooms %}
-            <option value="{{ r.room_id }}">{{ r.room_number }} ({{ r.block_name }})</option>
+            <option value="{{ r.room_id }}" {% if (r.vacant_beds | int) <= 0 %}disabled{% endif %}>{{ r.room_number }} ({{ r.block_name }}, {{ r.gender_type }}) &mdash; {{ r.vacant_beds }} bed(s) free</option>
             {% endfor %}
           </select>
         </div>
@@ -521,9 +643,9 @@
               {{ u.role | upper }}
             </span>
           </td>
-          <td>{{ u.display_name if u.display_name else '&mdash;' }}</td>
-          <td class="mono">{{ u.email if u.email else '&mdash;' }}</td>
-          <td class="mono">{{ u.entity_id if u.entity_id else '&mdash;' }}</td>
+          <td>{{ u.display_name if u.display_name else '—' }}</td>
+          <td class="mono">{{ u.email if u.email else '—' }}</td>
+          <td class="mono">{{ u.entity_id if u.entity_id else '—' }}</td>
           <td class="mono">{{ u.created_at }}</td>
         </tr>
         {% else %}

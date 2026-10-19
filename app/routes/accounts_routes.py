@@ -1,4 +1,5 @@
 import datetime
+from decimal import Decimal
 import os
 import sys
 
@@ -21,8 +22,16 @@ from flask import (
 from jinja2 import TemplateNotFound
 
 from app.auth import ROLE_ACCOUNTS, role_required
-from app.db import execute_query
+from app.db import execute_query, first_row, transaction
 from app.routes.common import COMMON_STYLES
+from app.validators import (
+    INVOICE_NO_RE,
+    ValidationError,
+    integer,
+    iso_date,
+    money,
+    required_text,
+)
 
 accounts_bp = Blueprint("accounts", __name__, url_prefix="/accounts")
 
@@ -196,40 +205,48 @@ def accounts_dashboard():
         ), 200
 
 
+def _payment_status(total_amount, paid_amount, due_date):
+    """Derives an invoice's status from its amounts and due date."""
+    if paid_amount >= total_amount:
+        return "PAID"
+    if due_date < datetime.date.today():
+        return "OVERDUE"
+    return "PARTIAL" if paid_amount > 0 else "PENDING"
+
+
 @accounts_bp.route("/add-dues", methods=["POST"])
 @role_required(ROLE_ACCOUNTS)
 def accounts_add_dues():
     """Create a new fee payment / due record in FEE_PAYMENT."""
-    raw_student_id = request.form.get("student_id")
-    invoice_no = (request.form.get("invoice_no") or "").strip().upper()
-    raw_total = request.form.get("total_amount")
-    raw_paid = request.form.get("paid_amount") or "0.00"
-    due_date = request.form.get("due_date")
-
-    if not raw_student_id or not invoice_no or not raw_total or not due_date:
-        flash("All fields (student, invoice number, total amount, due date) are required.", "danger")
-        return redirect(url_for("accounts.accounts_dashboard"))
-
     try:
-        student_id = int(raw_student_id)
-        total_amount = float(raw_total)
-        paid_amount = float(raw_paid)
-    except (ValueError, TypeError):
-        flash("Invalid numeric value for student ID, total amount, or paid amount.", "danger")
+        student_id = integer(request.form.get("student_id"), "Student", min_value=1)
+        invoice_no = required_text(
+            (request.form.get("invoice_no") or "").upper(), "Invoice number", 20, INVOICE_NO_RE,
+            "letters, digits and hyphens, e.g. INV-2026-005",
+        )
+        total_amount = money(request.form.get("total_amount"), "Total amount", min_value=Decimal("1.00"))
+        paid_amount = money(request.form.get("paid_amount") or "0", "Initial amount paid")
+        if paid_amount > total_amount:
+            raise ValidationError("Initial amount paid cannot be more than the total amount.")
+        due_date = iso_date(request.form.get("due_date"), "Due date", not_before=datetime.date.today())
+
+        student = execute_query("SELECT reg_no FROM STUDENT WHERE student_id = %s;", (student_id,), fetch_one=True)
+        if not student:
+            raise ValidationError(f"Student #{student_id} does not exist.")
+        if execute_query("SELECT 1 AS ok FROM FEE_PAYMENT WHERE invoice_no = %s;", (invoice_no,), fetch_one=True):
+            raise ValidationError(f"Invoice number {invoice_no} already exists.")
+    except ValidationError as e:
+        flash(str(e), "danger")
         return redirect(url_for("accounts.accounts_dashboard"))
 
-    if total_amount <= 0:
-        flash("Total amount must be greater than zero.", "danger")
-        return redirect(url_for("accounts.accounts_dashboard"))
-
-    payment_status = "PAID" if paid_amount >= total_amount else ("PARTIAL" if paid_amount > 0 else "PENDING")
+    payment_status = _payment_status(total_amount, paid_amount, due_date)
     payment_date = datetime.date.today().isoformat() if paid_amount > 0 else None
 
     try:
         execute_query(
             "INSERT INTO FEE_PAYMENT (student_id, invoice_no, total_amount, paid_amount, due_date, payment_status, payment_date) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s);",
-            (student_id, invoice_no, total_amount, paid_amount, due_date, payment_status, payment_date),
+            (student_id, invoice_no, total_amount, paid_amount, due_date.isoformat(), payment_status, payment_date),
             commit=True,
         )
         flash(f"Invoice {invoice_no} issued successfully for ₹{total_amount:,.2f} (Status: {payment_status}).", "success")
@@ -238,6 +255,12 @@ def accounts_add_dues():
 
     return redirect(url_for("accounts.accounts_dashboard"))
 
+
+def _payment_error(message, status_code):
+    if request.is_json:
+        return jsonify({"status": "error", "message": message}), status_code
+    flash(message, "danger")
+    return redirect(url_for("accounts.accounts_dashboard"))
 
 
 @accounts_bp.route("/record-payment", methods=["POST"])
@@ -250,62 +273,54 @@ def accounts_record_payment():
     raw_amount = request.form.get("amount_paid") or data.get("amount_paid")
 
     if not invoice_no:
-        if request.is_json:
-            return jsonify({"status": "error", "message": "Invoice number is required"}), 400
-        flash("Invoice number is required to record a payment.", "danger")
-        return redirect(url_for("accounts.accounts_dashboard"))
+        return _payment_error("Invoice number is required to record a payment.", 400)
 
     try:
-        amount = float(raw_amount)
-    except (TypeError, ValueError):
-        if request.is_json:
-            return jsonify({"status": "error", "message": "Invalid payment amount"}), 400
-        flash("Invalid payment amount entered.", "danger")
-        return redirect(url_for("accounts.accounts_dashboard"))
-
-    if amount <= 0:
-        if request.is_json:
-            return jsonify({"status": "error", "message": "Payment amount must be positive"}), 400
-        flash("Payment amount must be greater than zero.", "danger")
-        return redirect(url_for("accounts.accounts_dashboard"))
+        amount = money(raw_amount, "Payment amount", min_value=Decimal("0.01"))
+    except ValidationError as e:
+        return _payment_error(str(e), 400)
 
     try:
-        inv = execute_query(
-            "SELECT * FROM FEE_PAYMENT WHERE invoice_no = %s;",
-            (invoice_no,),
-            fetch_one=True,
-        )
-        if not inv:
-            if request.is_json:
-                return jsonify({"status": "error", "message": f"Invoice '{invoice_no}' not found."}), 404
-            flash(f"Invoice '{invoice_no}' not found in the fee payment ledger.", "danger")
-            return redirect(url_for("accounts.accounts_dashboard"))
+        with transaction() as cur:
+            cur.execute(
+                "SELECT total_amount, paid_amount, due_date, payment_status FROM FEE_PAYMENT WHERE invoice_no = %s FOR UPDATE;",
+                (invoice_no,),
+            )
+            inv = first_row(cur)
+            if not inv:
+                return _payment_error(f"Invoice '{invoice_no}' not found in the fee payment ledger.", 404)
 
-        curr_paid = float(inv.get("paid_amount") or inv.get("PAID_AMOUNT") or 0.0)
-        total_amount = float(inv.get("total_amount") or inv.get("TOTAL_AMOUNT") or 0.0)
+            total_amount = Decimal(str(inv.get("total_amount")))
+            curr_paid = Decimal(str(inv.get("paid_amount")))
+            balance = total_amount - curr_paid
+            if balance <= 0:
+                return _payment_error(f"Invoice {invoice_no} is already fully paid.", 400)
+            if amount > balance:
+                return _payment_error(
+                    f"Payment of ₹{amount:,.2f} exceeds the outstanding balance of ₹{balance:,.2f} on {invoice_no}.", 400
+                )
 
-        new_paid = curr_paid + amount
-        new_status = "PAID" if new_paid >= total_amount else "PARTIAL"
+            due_date = inv.get("due_date")
+            if not isinstance(due_date, datetime.date):
+                due_date = datetime.date.fromisoformat(str(due_date))
+            new_paid = curr_paid + amount
+            new_status = _payment_status(total_amount, new_paid, due_date)
 
-        execute_query(
-            "UPDATE FEE_PAYMENT SET paid_amount = %s, payment_status = %s, payment_date = CURDATE() "
-            "WHERE invoice_no = %s;",
-            (new_paid, new_status, invoice_no),
-            commit=True,
-        )
+            cur.execute(
+                "UPDATE FEE_PAYMENT SET paid_amount = %s, payment_status = %s, payment_date = CURDATE() "
+                "WHERE invoice_no = %s;",
+                (new_paid, new_status, invoice_no),
+            )
     except Exception as e:
-        if request.is_json:
-            return jsonify({"status": "error", "message": f"Database transaction failed: {str(e)}"}), 500
-        flash(f"Database transaction failed: {str(e)}", "danger")
-        return redirect(url_for("accounts.accounts_dashboard"))
+        return _payment_error(f"Database transaction failed: {str(e)}", 500)
 
     if request.is_json:
         return jsonify({
             "status": "success",
             "message": "Payment recorded successfully",
             "invoice_no": invoice_no,
-            "paid_amount": new_paid,
-            "total_amount": total_amount,
+            "paid_amount": float(new_paid),
+            "total_amount": float(total_amount),
             "payment_status": new_status,
         }), 200
 
@@ -316,4 +331,31 @@ def accounts_record_payment():
         f"Payment of ₹{amount:,.2f} recorded for invoice {invoice_no}. Status updated to {new_status}.",
         "success",
     )
+    return redirect(url_for("accounts.accounts_dashboard"))
+
+
+@accounts_bp.route("/invoices/delete", methods=["POST"])
+@role_required(ROLE_ACCOUNTS)
+def accounts_delete_invoice():
+    """Cancel (delete) an invoice that has not received any payment yet."""
+    invoice_no = (request.form.get("invoice_no") or "").strip()
+    if not invoice_no:
+        flash("Invoice number is required.", "danger")
+        return redirect(url_for("accounts.accounts_dashboard"))
+
+    try:
+        deleted = execute_query(
+            "DELETE FROM FEE_PAYMENT WHERE invoice_no = %s AND paid_amount = 0;",
+            (invoice_no,),
+            commit=True,
+        )
+        if deleted:
+            flash(f"Invoice {invoice_no} has been cancelled and removed from the ledger.", "success")
+        elif execute_query("SELECT 1 AS ok FROM FEE_PAYMENT WHERE invoice_no = %s;", (invoice_no,), fetch_one=True):
+            flash(f"Invoice {invoice_no} already has payments recorded and cannot be cancelled.", "warning")
+        else:
+            flash(f"Invoice '{invoice_no}' not found.", "danger")
+    except Exception as e:
+        flash(f"Failed to cancel invoice {invoice_no}: {str(e)}", "danger")
+
     return redirect(url_for("accounts.accounts_dashboard"))

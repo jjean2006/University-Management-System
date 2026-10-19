@@ -151,36 +151,26 @@ Open your browser and navigate to: **http://localhost:5000**
 
 #### 1. Install MySQL Server
 Install **MySQL Server 8.0** via [MySQL Community Installer](https://dev.mysql.com/downloads/installer/) or using **XAMPP**.
-Ensure MySQL service is running on default port `3306`.
+Ensure the MySQL service is running on port `3306`. You can use your existing `root` account (no extra MySQL user is needed).
 
-Open **MySQL Command Line Client** or **PowerShell** and create the user/database:
-```sql
-CREATE DATABASE IF NOT EXISTS university_db;
-CREATE USER IF NOT EXISTS 'jacob'@'localhost' IDENTIFIED BY 'password';
-CREATE USER IF NOT EXISTS 'jacob'@'127.0.0.1' IDENTIFIED BY 'password';
-GRANT ALL PRIVILEGES ON university_db.* TO 'jacob'@'localhost';
-GRANT ALL PRIVILEGES ON university_db.* TO 'jacob'@'127.0.0.1';
-FLUSH PRIVILEGES;
-EXIT;
-```
-*(If your MySQL root user already has a different password, see Environment Configuration below).*
-
-#### 2. Set Up Virtual Environment & Run (PowerShell / Command Prompt)
-Open PowerShell or Command Prompt in the project directory:
-
+#### 2. Configure Your Database Credentials
+Copy the template and put **your own** MySQL username and password in it:
 ```powershell
-# Create virtual environment
-python -m venv venv
+copy .env.example .env
+notepad .env
+```
+`.env` is git-ignored, so every team member keeps their own credentials locally.
 
-# Activate virtual environment
-# In PowerShell:
-.\venv\Scripts\Activate.ps1
-# (Or in Command Prompt: venv\Scripts\activate.bat)
+#### 3. Set Up Virtual Environment & Run (PowerShell / Command Prompt)
+```powershell
+# Create and activate a virtual environment
+python -m venv venv
+.\venv\Scripts\Activate.ps1          # (Command Prompt: venv\Scripts\activate.bat)
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Initialize database schema, analytical views, and seed data
+# Create university_db, its tables, views and sample data
 python schema\init_db.py
 
 # Launch the Flask application
@@ -190,33 +180,25 @@ Open your browser and navigate to: **http://localhost:5000**
 
 ---
 
-### Database Connection Configuration (Optional)
+### Database Connection Configuration
 
-The application automatically connects using sensible defaults (`jacob` / `password` on port `3307` or `3306`). If your MySQL configuration differs, customize via environment variables:
+Connection settings are read from a **`.env`** file in the project root (copy `.env.example`). Variables already set in the shell override the file.
 
-| Variable | Default Value | Description |
+| Variable | Example | Description |
 | :--- | :--- | :--- |
-| `DB_USER` | `jacob` (or `root`) | MySQL username |
-| `DB_PASSWORD` | `password` | MySQL password |
+| `DB_USER` | `root` | MySQL username |
+| `DB_PASSWORD` | `your_mysql_password` | MySQL password |
 | `DB_HOST` | `127.0.0.1` | MySQL host address |
-| `DB_PORT` | `3307` (fallbacks to `3306`) | MySQL TCP port |
-| `DB_NAME` | `university_db` | Database catalog name |
+| `DB_PORT` | `3306` | MySQL TCP port (the app also tries `3307`) |
+| `DB_NAME` | `university_db` | Database name |
 
-**Example (Windows PowerShell):**
-```powershell
-$env:DB_USER="root"
-$env:DB_PASSWORD="your_mysql_password"
-$env:DB_PORT="3306"
-python run.py
-```
+`schema/init_db.py` and the app both use these settings on Windows, macOS and Linux.
 
-**Example (Linux / macOS):**
+### Running the Test Suite
 ```bash
-export DB_USER="root"
-export DB_PASSWORD="your_mysql_password"
-export DB_PORT="3306"
-python run.py
+python -m pytest tests -q
 ```
+The suite (300+ tests) runs against the database in `.env`; `tests/test_tier5_crud_validation.py` re-seeds the sample data before and after it runs.
 
 ---
 
@@ -247,6 +229,19 @@ python run.py
 
 ---
 
+## Input Validation & Data Integrity
+
+All forms are validated on the server before any SQL runs, and multi-step changes run inside a single MySQL transaction:
+- Registration numbers, employee codes, course codes, invoice numbers, emails and phone numbers must match their formats.
+- CGPA must be 0.00–10.00; credits 1–6; capacity 1–300; amounts cannot be negative.
+- Payments cannot exceed the outstanding balance; partially paid overdue invoices stay `OVERDUE`.
+- Hostel allocation checks the block's gender and the room's free beds, and updates `occupied_beds`.
+- Attendance can only be recorded for students enrolled in the course and not for future dates.
+- Enrolling locks the course row (`SELECT ... FOR UPDATE`) so the last seat cannot be taken twice.
+- New user accounts never overwrite an existing username.
+
+---
+
 ## Role-Based Features
 
 ### 1. Academic Administrator (`/admin/dashboard`)
@@ -256,6 +251,9 @@ python run.py
 - **Add New Course Offering**: Interactive form to create new courses with code, title, credits, capacity, department, and prerequisites.
 - **Add Institutional User & Entity Account**: Provision users for any role (`student`, `faculty`, `admin`, `accounts`, `warden`) with automatic entity table synchronization.
 - **System User Accounts Directory**: Live audit table showing all active login accounts, assigned roles, and linked entity IDs.
+- **Server-side Search**: SQL `LIKE` search across students (reg no, name, email, programme, department, advisor) and courses.
+- **Manage Course Offerings**: Edit a course's title, credits and capacity, or delete a course that has no enrolled students.
+- **Delete Student**: Removes the student and their login; cascades to enrollments, attendance, waitlists and fees, and releases their course seats and hostel bed.
 
 ### 2. Faculty Portal (`/faculty/dashboard`)
 - View assigned lecture sections, student counts, and course capacities.
@@ -271,11 +269,13 @@ python run.py
   - Browse course catalog with seat availability and prerequisites.
   - Sign up / enroll directly if seats are available (`seats > 0`).
   - Join waitlist with priority queue position tracking if the course is full.
+  - **Drop** an in-progress course, which releases the seat.
 - **Fourth Section**: Tuition Fee Invoices & Payment Ledger.
 
 ### 4. Financial Accounts & Bursar (`/accounts/dashboard`)
 - **1. Issue New Student Fee Invoice & Dues**: Create new student invoices with due dates and payment amounts.
-- **2. Record Fee Payment Update**: Transactional payment recorder with instant toast notifications.
+- **2. Record Fee Payment Update**: Transactional payment recorder; payments cannot exceed the outstanding balance.
+- **Cancel Invoice**: Delete an invoice that has not received any payment.
 - **3. Fee Defaulters Directory**: Audit directory of students with outstanding balances.
 - **4. Complete Invoicing Ledger**: Comprehensive fee ledger with real-time filtering by payment status and student ID.
 - **Revenue Summary KPIs**: Overview of billed, collected, and outstanding balances.
@@ -294,7 +294,8 @@ python run.py
 ├── app/
 │   ├── auth.py                  # Role definitions, session guards & authentication
 │   ├── config.py                # Database configuration & environment fallbacks
-│   ├── db.py                    # Database connection pool & query execution abstraction
+│   ├── db.py                    # Database connection, query execution & transaction helper
+│   ├── validators.py            # Server-side form validation helpers
 │   ├── __init__.py              # Flask application factory (create_app)
 │   ├── routes/
 │   │   ├── accounts_routes.py   # Accounts dashboard, invoicing & payment routes
@@ -329,6 +330,7 @@ python run.py
 │   ├── schema.sql               # 13 relational DDL tables (Topological order)
 │   ├── seed_data.sql            # Sample DML dataset and user accounts
 │   └── views.sql                # 6 analytical SQL views
+├── .env.example                 # Template for each member's local MySQL credentials
 ├── credentials.txt              # Plaintext demo credentials reference sheet
 ├── requirements.txt             # Python package dependencies
 ├── run_mysql.sh                 # User-space MySQL launcher & initializer

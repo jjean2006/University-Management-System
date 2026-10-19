@@ -7,10 +7,12 @@ Provides a unified interface to MySQL with multi-tiered fallback:
 All tiers support dictionary cursors, parameterized queries, and transaction commits.
 """
 
+from contextlib import contextmanager
 from decimal import Decimal
 import os
 import re
 import select
+import shutil
 import subprocess
 import time
 import uuid
@@ -27,9 +29,14 @@ except ImportError:
 try:
     import pymysql
     import pymysql.cursors
+    import pymysql.constants.CLIENT
     HAS_PYMYSQL = True
 except ImportError:
     HAS_PYMYSQL = False
+
+
+# mysql client binary used by the CLI fallback tier (PATH lookup keeps it working on Windows)
+MYSQL_BIN = shutil.which("mysql") or "/usr/bin/mysql"
 
 
 class CaseInsensitiveDict(dict):
@@ -95,7 +102,7 @@ class MySQLCLIConnection:
 
         # 1. Socket connection if available
         if self.socket and os.path.exists(self.socket):
-            cmd = ["/usr/bin/mysql", f"-u{self.user}", "-S", self.socket, "--unbuffered", "--batch", "--force"]
+            cmd = [MYSQL_BIN, f"-u{self.user}", "-S", self.socket, "--unbuffered", "--batch", "--force"]
             if self.db:
                 cmd.append(self.db)
             self._proc = subprocess.Popen(
@@ -113,7 +120,7 @@ class MySQLCLIConnection:
         candidate_ports = [self.port] + [p for p in self.fallback_ports if p != self.port]
         last_err = None
         for p in candidate_ports:
-            cmd = ["/usr/bin/mysql", f"-u{self.user}", "-h", self.host, "-P", str(p), "--unbuffered", "--batch", "--force"]
+            cmd = [MYSQL_BIN, f"-u{self.user}", "-h", self.host, "-P", str(p), "--unbuffered", "--batch", "--force"]
             if self.db:
                 cmd.append(self.db)
             try:
@@ -450,10 +457,11 @@ def _try_mysql_connector(db_name=None):
     return None
 
 
-def _try_pymysql(db_name=None):
+def _try_pymysql(db_name=None, multi_statements=False):
     if not HAS_PYMYSQL:
         return None
     db = db_name if db_name is not None else Config.DB_NAME
+    extra = {"client_flag": pymysql.constants.CLIENT.MULTI_STATEMENTS} if multi_statements else {}
     # 1. Try sockets
     for sock in [Config.DB_SOCKET] + Config.FALLBACK_SOCKETS:
         if sock and os.path.exists(sock):
@@ -461,10 +469,11 @@ def _try_pymysql(db_name=None):
                 conn = pymysql.connect(
                     user=Config.DB_USER,
                     password=Config.DB_PASSWORD,
-                    database=db,
+                    database=db or None,
                     unix_socket=sock,
                     autocommit=True,
-                    cursorclass=pymysql.cursors.DictCursor
+                    cursorclass=pymysql.cursors.DictCursor,
+                    **extra
                 )
                 return conn
             except Exception:
@@ -475,12 +484,13 @@ def _try_pymysql(db_name=None):
             conn = pymysql.connect(
                 user=Config.DB_USER,
                 password=Config.DB_PASSWORD,
-                database=db,
+                database=db or None,
                 host=Config.DB_HOST,
                 port=port,
                 autocommit=True,
                 cursorclass=pymysql.cursors.DictCursor,
-                connect_timeout=2
+                connect_timeout=2,
+                **extra
             )
             return conn
         except Exception:
@@ -506,7 +516,7 @@ def _get_cli_connection(db_name=None):
             env = os.environ.copy()
             if Config.DB_PASSWORD:
                 env["MYSQL_PWD"] = Config.DB_PASSWORD
-            probe_cmd = ["/usr/bin/mysql", f"-u{Config.DB_USER}", "-h", Config.DB_HOST, "-P", str(p), "-e", "SELECT 1;"]
+            probe_cmd = [MYSQL_BIN, f"-u{Config.DB_USER}", "-h", Config.DB_HOST, "-P", str(p), "-e", "SELECT 1;"]
             if db:
                 probe_cmd.append(db)
             try:
@@ -606,9 +616,72 @@ def execute_query(sql, params=None, fetch_all=True, fetch_one=False, commit=Fals
             conn.close()
 
 
+def _dict_cursor(conn):
+    """Opens a dictionary cursor on any of the three connection tiers."""
+    if isinstance(conn, MySQLCLIConnection):
+        return conn.cursor(dictionary=True)
+    if HAS_PYMYSQL and isinstance(conn, pymysql.connections.Connection):
+        return conn.cursor(pymysql.cursors.DictCursor)
+    return conn.cursor(dictionary=True)
+
+
+@contextmanager
+def transaction():
+    """Runs several statements atomically on one connection.
+
+    Yields a dictionary cursor; commits when the block finishes and rolls
+    back every statement if any exception is raised inside the block.
+    """
+    conn = get_db_connection()
+    cursor = _dict_cursor(conn)
+    try:
+        cursor.execute("START TRANSACTION")
+        yield cursor
+        cursor.execute("COMMIT")
+    except Exception:
+        try:
+            cursor.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        if hasattr(conn, "close"):
+            conn.close()
+
+
+def first_row(cursor):
+    """Fetches all pending rows from a cursor and returns the first one (or None)."""
+    rows = cursor.fetchall()
+    return rows[0] if rows else None
+
+
 def execute_script(sql_script, db_name=None):
-    """Executes a multi-statement SQL script (DDL / seeds)."""
+    """Executes a multi-statement SQL script (DDL / seeds).
+
+    Pass db_name="" to run without selecting a database (e.g. CREATE DATABASE).
+    """
     target_db = db_name if db_name is not None else Config.DB_NAME
+
+    # Preferred path: PyMySQL multi-statement execution (works on Windows, macOS and Linux)
+    conn = _try_pymysql(target_db, multi_statements=True)
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql_script)
+                while cur.nextset():
+                    pass
+            conn.commit()
+        except Exception as e:
+            raise RuntimeError(f"Error executing SQL script: {e}")
+        finally:
+            conn.close()
+        return True
+
+    # Fallback: mysql command-line client
     socket = None
     for s in [Config.DB_SOCKET] + Config.FALLBACK_SOCKETS:
         if s and os.path.exists(s):
@@ -619,7 +692,7 @@ def execute_script(sql_script, db_name=None):
     if Config.DB_PASSWORD:
         env["MYSQL_PWD"] = Config.DB_PASSWORD
 
-    cmd = ["/usr/bin/mysql", f"-u{Config.DB_USER}"]
+    cmd = [MYSQL_BIN, f"-u{Config.DB_USER}"]
     if socket:
         cmd.extend(["-S", socket])
     else:

@@ -124,7 +124,7 @@
           <td class="mono" style="color: var(--badge-danger-text); font-weight: 600;">₹{{ "{:,.2f}".format(d.balance_due | float) if d.balance_due is defined and d.balance_due is not none else d.balance_due }}</td>
           <td class="mono">{{ d.due_date }}</td>
           <td>
-            <span class="badge {{ 'badge-partial' if d.payment_status == 'PARTIAL' else 'badge-overdue' }}">
+            <span class="badge {{ 'badge-partial' if d.payment_status == 'PARTIAL' else ('badge-warning' if d.payment_status == 'PENDING' else 'badge-overdue') }}">
               {{ d.payment_status }}
             </span>
           </td>
@@ -213,6 +213,8 @@
             <span class="badge badge-paid">PAID</span>
             {% elif st == 'PARTIAL' %}
             <span class="badge badge-partial">PARTIAL</span>
+            {% elif st == 'PENDING' %}
+            <span class="badge badge-warning">PENDING</span>
             {% else %}
             <span class="badge badge-overdue">OVERDUE</span>
             {% endif %}
@@ -226,6 +228,13 @@
                     data-balance-due="{{ bal }}">
               Pay
             </button>
+            {% if (l.paid_amount | float) == 0 %}
+            <form method="POST" action="/accounts/invoices/delete" style="display: inline; margin: 0;"
+                  onsubmit="return confirm('Cancel invoice {{ l.invoice_no }}? This deletes it from the ledger.');">
+              <input type="hidden" name="invoice_no" value="{{ l.invoice_no }}">
+              <button type="submit" class="btn btn-secondary btn-sm">Cancel</button>
+            </form>
+            {% endif %}
             {% else %}
             <span style="color: var(--text-secondary); font-size: 12px;">Settled</span>
             {% endif %}
@@ -266,6 +275,8 @@
             <span class="badge badge-paid">PAID</span>
             {% elif st == 'PARTIAL' %}
             <span class="badge badge-partial">PARTIAL</span>
+            {% elif st == 'PENDING' %}
+            <span class="badge badge-warning">PENDING</span>
             {% else %}
             <span class="badge badge-overdue">OVERDUE</span>
             {% endif %}

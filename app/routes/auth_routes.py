@@ -18,7 +18,6 @@ from flask import (
 from jinja2 import TemplateNotFound
 
 from app.auth import (
-    DEMO_CREDENTIALS,
     ROLE_DASHBOARD_ROUTES,
     authenticate_user,
     get_current_user,
@@ -211,14 +210,12 @@ def _render_login_view(error=None, next_url=None):
             "auth/login.html",
             error=error,
             next_url=next_url,
-            demo_credentials=DEMO_CREDENTIALS,
         )
     except TemplateNotFound:
         return render_template_string(
             LOGIN_HTML_FALLBACK,
             error=error,
             next_url=next_url,
-            demo_credentials=DEMO_CREDENTIALS,
         )
 
 

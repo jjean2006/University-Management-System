@@ -21,8 +21,9 @@ from flask import (
 from jinja2 import TemplateNotFound
 
 from app.auth import ROLE_FACULTY, get_current_user, role_required
-from app.db import execute_query
+from app.db import execute_query, transaction
 from app.routes.common import COMMON_STYLES
+from app.validators import ValidationError, choice, integer, iso_date
 
 faculty_bp = Blueprint("faculty", __name__, url_prefix="/faculty")
 
@@ -199,134 +200,133 @@ def faculty_dashboard():
         print("[Faculty] Error loading shortages:", e)
 
     try:
+        # Each student carries the ids of the courses they are actively enrolled in, so the
+        # attendance forms only offer students who belong to the selected course.
         students = execute_query(
-            "SELECT student_id, reg_no, first_name, last_name FROM STUDENT ORDER BY reg_no;"
+            "SELECT s.student_id, s.reg_no, s.first_name, s.last_name, "
+            "GROUP_CONCAT(e.course_id ORDER BY e.course_id) AS course_ids "
+            "FROM STUDENT s "
+            "JOIN ENROLLMENT e ON e.student_id = s.student_id AND e.completion_status = 'ENROLLED' "
+            "GROUP BY s.student_id, s.reg_no, s.first_name, s.last_name "
+            "ORDER BY s.reg_no;"
         ) or []
     except Exception as e:
         print("[Faculty] Error loading students:", e)
 
+    template_args = dict(
+        user=user,
+        courses=courses,
+        roster=roster,
+        shortages=shortages,
+        students=students,
+        today=datetime.date.today().isoformat(),
+    )
     try:
-        return render_template(
-            "faculty/dashboard.html",
-            user=user,
-            courses=courses,
-            roster=roster,
-            shortages=shortages,
-            students=students,
-        ), 200
+        return render_template("faculty/dashboard.html", **template_args), 200
     except TemplateNotFound:
-        return render_template_string(
-            FACULTY_DASHBOARD_HTML,
-            user=user,
-            courses=courses,
-            roster=roster,
-            shortages=shortages,
-            students=students,
-        ), 200
+        return render_template_string(FACULTY_DASHBOARD_HTML, **template_args), 200
+
+
+def _attendance_error(message):
+    if request.is_json:
+        return jsonify({"status": "error", "message": message}), 400
+    flash(message, "danger")
+    return redirect(url_for("faculty.faculty_dashboard"))
 
 
 @faculty_bp.route("/attendance", methods=["POST"])
 @role_required(ROLE_FACULTY)
 def faculty_attendance():
-    """Genuine attendance marking endpoint: records or updates attendance per student in ATTENDANCE table."""
-    data = request.get_json(silent=True) if request.is_json else {}
+    """Records or updates attendance in the ATTENDANCE table for students enrolled in the course."""
+    data = (request.get_json(silent=True) or {}) if request.is_json else {}
 
     raw_course_id = request.form.get("course_id") or data.get("course_id")
     try:
-        course_id = int(raw_course_id) if raw_course_id is not None else None
-    except (ValueError, TypeError):
-        return "Invalid course_id parameter", 400
+        course_id = integer(raw_course_id, "Course", min_value=1)
+        attendance_date = iso_date(
+            request.form.get("attendance_date") or data.get("attendance_date") or datetime.date.today().isoformat(),
+            "Lecture date",
+            not_after=datetime.date.today(),
+        )
+    except ValidationError as e:
+        return _attendance_error(str(e))
 
-    if not course_id:
-        flash("Please select a valid course.", "danger")
-        return redirect(url_for("faculty.faculty_dashboard"))
-
-    attendance_date = (
-        request.form.get("attendance_date")
-        or data.get("attendance_date")
-        or datetime.date.today().isoformat()
-    )
+    course = execute_query("SELECT course_code FROM COURSE WHERE course_id = %s;", (course_id,), fetch_one=True)
+    if not course:
+        return _attendance_error(f"Course #{course_id} does not exist.")
 
     records = []
 
     # Priority 1: Specific student selection form
-    raw_single_student = request.form.get("student_id") or (data.get("student_id") if data else None)
+    raw_single_student = request.form.get("student_id") or data.get("student_id")
     if raw_single_student:
-        try:
-            s_id = int(raw_single_student)
-            s_status = request.form.get("status") or (data.get("status") if data else "Present")
-            records.append((s_id, s_status))
-        except (ValueError, TypeError):
-            pass
+        records.append((raw_single_student, request.form.get("status") or data.get("status")))
 
     # Priority 2: JSON payload with 'records' list or 'attendance' dict
     if not records and data:
-        if "records" in data and isinstance(data["records"], list):
+        if isinstance(data.get("records"), list):
             for item in data["records"]:
-                stu_id = item.get("student_id")
-                st = item.get("status", "Present")
-                if stu_id:
-                    records.append((int(stu_id), st))
-        elif "attendance" in data and isinstance(data["attendance"], dict):
-            for k, v in data["attendance"].items():
-                try:
-                    records.append((int(k), str(v)))
-                except ValueError:
-                    pass
+                if isinstance(item, dict) and item.get("student_id"):
+                    records.append((item.get("student_id"), item.get("status")))
+        elif isinstance(data.get("attendance"), dict):
+            records.extend(data["attendance"].items())
 
-    # Priority 3: Form submission with student status radios/inputs (status_<student_id>)
+    # Priority 3: Batch sheet radios (status_<student_id>)
     if not records and request.form:
         for key, val in request.form.items():
-            if key.startswith("status_"):
-                try:
-                    stu_id = int(key.split("status_")[1])
-                    records.append((stu_id, val))
-                except ValueError:
-                    pass
-            elif key.startswith("attendance_"):
-                try:
-                    stu_id = int(key.split("attendance_")[1])
-                    records.append((stu_id, val))
-                except ValueError:
-                    pass
+            for prefix in ("status_", "attendance_"):
+                # suffix must be a student id ("attendance_date" is not a student field)
+                if key.startswith(prefix) and key[len(prefix):].isdigit():
+                    records.append((key[len(prefix):], val))
 
-
-    # If no specific student statuses were given, fetch enrolled students for this course
-    # and mark them with a default Present status so the action executes genuinely
     if not records:
-        enrolled = execute_query(
-            "SELECT student_id FROM ENROLLMENT WHERE course_id = %s;",
-            (course_id,),
-            fetch_all=True,
-        ) or []
-        for r in enrolled:
-            stu_id = r.get("student_id") or r.get("STUDENT_ID")
-            if stu_id:
-                records.append((int(stu_id), "Present"))
+        return _attendance_error("No students were selected for attendance.")
 
-    # Execute genuine inserts/updates with transaction commit
-    updated_count = 0
+    try:
+        records = [
+            (integer(stu_id, "Student", min_value=1), choice(str(status or ""), "Attendance status", ("Present", "Absent")))
+            for stu_id, status in records
+        ]
+    except ValidationError as e:
+        return _attendance_error(str(e))
+
+    enrolled = {
+        int(r.get("student_id"))
+        for r in execute_query(
+            "SELECT student_id FROM ENROLLMENT WHERE course_id = %s AND completion_status = 'ENROLLED';",
+            (course_id,),
+        ) or []
+    }
+    valid = [(sid, st) for sid, st in records if sid in enrolled]
+    skipped = len(records) - len(valid)
+    if not valid:
+        return _attendance_error(f"None of the selected students are enrolled in {course.get('course_code')}.")
+
     sql = (
         "INSERT INTO ATTENDANCE (student_id, course_id, attendance_date, status) "
         "VALUES (%s, %s, %s, %s) "
         "ON DUPLICATE KEY UPDATE status = VALUES(status);"
     )
-    for stu_id, status in records:
-        clean_status = "Present" if status.strip().lower() == "present" else "Absent"
-        execute_query(sql, (stu_id, course_id, attendance_date, clean_status), commit=True)
-        updated_count += 1
+    with transaction() as cur:
+        for stu_id, status in valid:
+            cur.execute(sql, (stu_id, course_id, attendance_date.isoformat(), status))
+    updated_count = len(valid)
 
     if request.is_json:
         return jsonify({
             "status": "success",
             "message": f"Recorded attendance for {updated_count} students.",
             "course_id": course_id,
-            "attendance_date": attendance_date,
+            "attendance_date": attendance_date.isoformat(),
             "updated_count": updated_count,
+            "skipped_count": skipped,
         }), 200
 
     if request.form.get("redirect") == "false":
         return "Attendance recorded successfully", 200
 
-    flash(f"Successfully recorded attendance for {updated_count} student(s) on {attendance_date}.", "success")
+    message = f"Successfully recorded attendance for {updated_count} student(s) in {course.get('course_code')} on {attendance_date.isoformat()}."
+    if skipped:
+        message += f" {skipped} student(s) skipped because they are not enrolled in this course."
+    flash(message, "success")
     return redirect(url_for("faculty.faculty_dashboard"))

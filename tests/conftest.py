@@ -16,12 +16,14 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+from app.config import Config  # loads .env
+
 DB_CONFIG = {
-    "user": "jacob",
-    "password": "password",
-    "database": "university_db",
-    "host": "127.0.0.1",
-    "ports": [3307, 3306],
+    "user": Config.DB_USER,
+    "password": Config.DB_PASSWORD,
+    "database": Config.DB_NAME,
+    "host": Config.DB_HOST,
+    "ports": [Config.DB_PORT] + [p for p in Config.FALLBACK_PORTS if p != Config.DB_PORT],
     "socket": "/tmp/mysql.sock",
 }
 

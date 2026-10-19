@@ -9,44 +9,41 @@ Tests:
 
 import os
 import sys
-import subprocess
+import pytest
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from app.config import Config
-from app.db import get_db_connection, execute_query, MySQLCLIConnection
-
-MYSQL_CMD = [
-    "/usr/bin/mysql",
-    "-ujacob",
-    "-ppassword",
-    "-S",
-    "/tmp/mysql.sock",
-    "university_db",
-    "-B",
-    "-e",
-]
-
+from app.db import get_db_connection, execute_query, MySQLCLIConnection, _try_pymysql
 
 def run_sql_raw(sql):
-    """Run SQL statement via mysql CLI directly and return (returncode, stdout, stderr)."""
-    proc = subprocess.run(
-        [
-            "/usr/bin/mysql",
-            "-ujacob",
-            "-ppassword",
-            "-S",
-            "/tmp/mysql.sock",
-            "university_db",
-            "-e",
-            sql,
-        ],
-        capture_output=True,
-        text=True,
-    )
-    return proc.returncode, proc.stdout, proc.stderr
+    """Run a multi-statement SQL script on the configured database.
+
+    Returns (returncode, stdout, stderr) in the same shape as the mysql CLI in batch
+    mode: result sets as tab-separated text, errors as 'ERROR <code>: <message>'.
+    """
+    conn = _try_pymysql(multi_statements=True)
+    assert conn is not None, "Could not connect to MySQL with the configured credentials"
+    out_lines = []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            while True:
+                if cur.description:
+                    out_lines.append("\t".join(d[0] for d in cur.description))
+                    for row in cur.fetchall():
+                        out_lines.append("\t".join("NULL" if v is None else str(v) for v in row.values()))
+                if not cur.nextset():
+                    break
+        return 0, "\n".join(out_lines) + "\n", ""
+    except Exception as e:
+        code = e.args[0] if e.args else ""
+        msg = e.args[1] if len(e.args) > 1 else str(e)
+        return 1, "\n".join(out_lines), f"ERROR {code}: {msg}"
+    finally:
+        conn.close()  # closing discards any open transaction
 
 
 def test_fk_nonexistent_programme_fails():
@@ -304,6 +301,7 @@ def test_connection_baseline():
     return True, f"Baseline connection successful (MySQL version: {res[0].get('ver')})"
 
 
+@pytest.mark.skipif(not os.path.exists("/tmp/mysql.sock"), reason="requires a local MySQL UNIX socket (Linux)")
 def test_connection_fallback_socket():
     """Simulate primary socket down: point Config.DB_SOCKET to non-existent socket, fallback to valid socket."""
     original_socket = Config.DB_SOCKET
@@ -328,6 +326,7 @@ def test_connection_fallback_socket():
         Config.FALLBACK_SOCKETS = original_fallbacks
 
 
+@pytest.mark.skipif(not os.path.exists("/tmp/mysql.sock"), reason="requires a local MySQL UNIX socket (Linux)")
 def test_connection_all_sockets_down_behavior():
     """Empirically test behavior when ALL sockets are missing.
     
@@ -401,7 +400,7 @@ def test_mysql_cli_null_handling_finding():
 def test_mysql_cli_information_schema_casing_finding():
     """EMPIRICAL FINDING: information_schema queries return uppercase column names."""
     res = execute_query(
-        "SELECT column_name FROM information_schema.key_column_usage "
+        "SELECT column_name AS column_name FROM information_schema.key_column_usage "
         "WHERE table_schema = 'university_db' AND table_name = 'ENROLLMENT' AND constraint_name = 'PRIMARY';"
     )
     assert len(res) > 0

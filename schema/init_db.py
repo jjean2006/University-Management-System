@@ -75,7 +75,7 @@ EXPECTED_VIEWS = [
 def ensure_database():
     print(f"[*] Ensuring database '{Config.DB_NAME}' exists...")
     create_db_sql = f"CREATE DATABASE IF NOT EXISTS {Config.DB_NAME};"
-    execute_script(create_db_sql, db_name=None)
+    execute_script(create_db_sql, db_name="")
     print(f"[+] Database '{Config.DB_NAME}' is ready.")
 
 
