@@ -50,6 +50,34 @@
     });
   }
 
+  // Global Toast Notification Helper
+  window.showToast = function (message, type) {
+    var container = document.querySelector('.alert-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.className = 'alert-container';
+      document.body.appendChild(container);
+    }
+    var alertClass = type === 'success' ? 'alert-success' : (type === 'error' || type === 'danger' ? 'alert-error' : (type === 'warning' ? 'alert-warning' : 'alert-info'));
+    var alert = document.createElement('div');
+    alert.className = 'alert ' + alertClass;
+    alert.setAttribute('role', 'alert');
+    alert.innerHTML = '<span>' + message + '</span><button type="button" class="alert-close" aria-label="Close">&times;</button>';
+    container.appendChild(alert);
+
+    alert.querySelector('.alert-close').addEventListener('click', function () {
+      alert.style.opacity = '0';
+      setTimeout(function () { if (alert.parentNode) alert.parentNode.removeChild(alert); }, 150);
+    });
+
+    setTimeout(function () {
+      if (alert && alert.parentNode) {
+        alert.style.opacity = '0';
+        setTimeout(function () { if (alert.parentNode) alert.parentNode.removeChild(alert); }, 150);
+      }
+    }, 5000);
+  };
+
   // Initialize on DOMContentLoaded
   document.addEventListener('DOMContentLoaded', function () {
     initFlashMessages();

@@ -59,7 +59,54 @@
     }
   }
 
+  function initLedgerFilters() {
+    var table = document.getElementById('tblLedger');
+    var searchInput = document.getElementById('ledgerSearchInput');
+    var statusSelect = document.getElementById('filterLedgerStatus');
+    var studentSelect = document.getElementById('filterLedgerStudent');
+    var counter = document.querySelector('[data-row-count="tblLedger"]');
+    if (!table || !statusSelect || !studentSelect) return;
+
+    function applyFilter() {
+      var query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+      var status = statusSelect.value.trim().toUpperCase();
+      var studentId = studentSelect.value.trim();
+      var tbody = table.querySelector('tbody');
+      if (!tbody) return;
+
+      var rows = tbody.querySelectorAll('tr');
+      var visible = 0;
+
+      rows.forEach(function (row) {
+        if (row.querySelector('td[colspan]')) return;
+        var text = row.textContent.toLowerCase();
+        var rowStatus = (row.getAttribute('data-status') || '').toUpperCase();
+        var rowStudentId = (row.getAttribute('data-student-id') || '').trim();
+
+        var matchesQuery = query === '' || text.indexOf(query) !== -1;
+        var matchesStatus = status === '' || rowStatus === status;
+        var matchesStudent = studentId === '' || rowStudentId === studentId;
+
+        if (matchesQuery && matchesStatus && matchesStudent) {
+          row.style.display = '';
+          visible++;
+        } else {
+          row.style.display = 'none';
+        }
+      });
+
+      if (counter) {
+        counter.textContent = visible + ' record' + (visible === 1 ? '' : 's');
+      }
+    }
+
+    if (searchInput) searchInput.addEventListener('input', applyFilter);
+    statusSelect.addEventListener('change', applyFilter);
+    studentSelect.addEventListener('change', applyFilter);
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     initPaymentModal();
+    initLedgerFilters();
   });
 })();

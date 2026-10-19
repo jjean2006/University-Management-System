@@ -5,62 +5,89 @@
 {% block content %}
 <div class="page-header-row">
   <div class="page-titles">
-    <h2>Financial Accounts & Tuition Fee Management</h2>
-    <p>University Bursar Office &bull; Revenue collection summaries, student fee ledgers, and defaulter audits.</p>
+    <h2>Financial Accounts &amp; Tuition Fee Management</h2>
+    <p>University Bursar Office &bull; Invoicing, payments, fee defaulters directory, and complete fee ledgers.</p>
   </div>
   <div class="page-actions">
     <button type="button" class="btn btn-primary" data-record-payment>+ Record Payment Update</button>
   </div>
 </div>
 
-<!-- Revenue Summary KPI Cards (v_accounts_fee_summary) -->
+<!-- 1. Issue New Student Fee Invoice & Dues -->
 <div class="card">
   <div class="card-header">
-    <h3>Revenue Aggregation & Fee Collection Summary KPIs</h3>
-    <div class="header-meta">Analytical View: <code class="mono">v_accounts_fee_summary</code></div>
+    <h3>Issue New Student Fee Invoice &amp; Dues</h3>
+    <div class="header-meta">Billing &amp; Invoicing &bull; Adds to <code class="mono">FEE_PAYMENT</code></div>
   </div>
 
-  <div class="table-responsive">
-    <table>
-      <thead>
-        <tr>
-          <th>Payment Status</th>
-          <th>Invoice Count</th>
-          <th>Total Billed Amount (₹)</th>
-          <th>Total Collected Amount (₹)</th>
-          <th>Outstanding Balance Due (₹)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in summary %}
-        <tr>
-          <td>
-            {% set st = row.payment_status %}
-            {% if st == 'PAID' %}
-            <span class="badge badge-paid">PAID</span>
-            {% elif st == 'PARTIAL' %}
-            <span class="badge badge-partial">PARTIAL</span>
-            {% else %}
-            <span class="badge badge-overdue">OVERDUE</span>
-            {% endif %}
-          </td>
-          <td class="mono">{{ row.total_invoices if row.total_invoices is defined else (row.invoice_count if row.invoice_count is defined else '-') }}</td>
-          <td class="mono">₹{{ "{:,.2f}".format(row.total_billed_amount | float) if row.total_billed_amount is defined and row.total_billed_amount is not none else row.total_billed_amount }}</td>
-          <td class="mono" style="color: var(--badge-success-text); font-weight: 600;">₹{{ "{:,.2f}".format(row.total_collected_amount | float) if row.total_collected_amount is defined and row.total_collected_amount is not none else row.total_collected_amount }}</td>
-          <td class="mono" style="color: var(--badge-danger-text); font-weight: 600;">₹{{ "{:,.2f}".format(row.outstanding_balance | float) if row.outstanding_balance is defined and row.outstanding_balance is not none else row.outstanding_balance }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No revenue summary records found.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <form method="POST" action="/accounts/add-dues" style="margin-top: 12px;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+      <div>
+        <label for="dueStudentSelect" class="form-label">Student *</label>
+        <select id="dueStudentSelect" name="student_id" class="form-control" required>
+          {% for s in students %}
+          <option value="{{ s.student_id }}">
+            {{ s.reg_no }} &mdash; {{ s.first_name }} {{ s.last_name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label for="dueInvoiceNo" class="form-label">Invoice Number *</label>
+        <input type="text" id="dueInvoiceNo" name="invoice_no" placeholder="e.g. INV-2026-005" class="form-control mono" required>
+      </div>
+
+      <div>
+        <label for="dueTotalAmount" class="form-label">Total Amount Due (₹) *</label>
+        <input type="number" id="dueTotalAmount" step="0.01" min="1.00" name="total_amount" placeholder="e.g. 195000.00" class="form-control mono" required>
+      </div>
+
+      <div>
+        <label for="duePaidAmount" class="form-label">Initial Amount Paid (₹)</label>
+        <input type="number" id="duePaidAmount" step="0.01" min="0.00" name="paid_amount" value="0.00" class="form-control mono">
+      </div>
+
+      <div>
+        <label for="dueDateInput" class="form-label">Payment Due Date *</label>
+        <input type="date" id="dueDateInput" name="due_date" class="form-control" value="2026-11-15" required>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Create Invoice &amp; Record Dues</button>
+  </form>
 </div>
 
-<!-- Fee Defaulters List (v_accounts_defaulters_list) -->
+<!-- 2. Record Fee Payment Update -->
+<div class="card">
+  <div class="card-header">
+    <h3>Record Fee Payment Update</h3>
+    <div class="header-meta">Direct Invoicing Transaction &bull; Updates <code class="mono">FEE_PAYMENT</code></div>
+  </div>
+
+  <form method="POST" action="/accounts/record-payment">
+    <div style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;">
+      <div style="flex: 1; min-width: 220px;">
+        <label for="invoiceNoInput" class="form-label">Invoice Number</label>
+        <input type="text" id="invoiceNoInput" name="invoice_no" placeholder="e.g. INV-2026-003" class="form-control mono" required>
+      </div>
+
+      <div style="flex: 1; min-width: 200px;">
+        <label for="amountPaidInput" class="form-label">Payment Amount (₹)</label>
+        <input type="number" id="amountPaidInput" step="0.01" min="0.01" name="amount_paid" placeholder="Enter amount in ₹" class="form-control mono" required>
+      </div>
+
+      <div>
+        <button type="submit" class="btn btn-primary">Record Payment</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- 3. Fee Defaulters Directory -->
 <div class="card" style="border-left: 3px solid var(--badge-warning-text);">
   <div class="card-header">
-    <h3>Fee Defaulters Directory (Outstanding Unsettled Balances)</h3>
+    <h3>Fee Defaulters Directory</h3>
     <div class="header-meta">Analytical View: <code class="mono">v_accounts_defaulters_list</code> &bull; Total: {{ defaulters | length }} Defaulters</div>
   </div>
 
@@ -118,16 +145,33 @@
   </div>
 </div>
 
-<!-- Complete Invoicing Ledger Table -->
+<!-- 4. Complete Invoicing Ledger -->
 <div class="card">
   <div class="card-header">
     <h3>Complete Invoicing Ledger</h3>
     <div class="header-meta">Database Table: <code class="mono">FEE_PAYMENT</code> &bull; Total: {{ ledger | length }} Invoices</div>
   </div>
 
-  <div class="filter-bar">
-    <div class="filter-input-wrap">
-      <input type="text" class="form-control" placeholder="Search full fee ledger..." data-table-filter="tblLedger">
+  <div class="filter-bar" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+    <div class="filter-input-wrap" style="flex: 2; min-width: 200px;">
+      <input type="text" class="form-control" id="ledgerSearchInput" placeholder="Search full fee ledger by invoice, reg no, name...">
+    </div>
+    <div style="flex: 1; min-width: 160px;">
+      <select id="filterLedgerStatus" class="form-control">
+        <option value="">All Payment Statuses</option>
+        <option value="PAID">PAID</option>
+        <option value="PARTIAL">PARTIAL</option>
+        <option value="PENDING">PENDING</option>
+        <option value="OVERDUE">OVERDUE</option>
+      </select>
+    </div>
+    <div style="flex: 1; min-width: 190px;">
+      <select id="filterLedgerStudent" class="form-control">
+        <option value="">All Students (Student ID)</option>
+        {% for s in students %}
+        <option value="{{ s.student_id }}">ID {{ s.student_id }} &mdash; {{ s.reg_no }} ({{ s.first_name }} {{ s.last_name }})</option>
+        {% endfor %}
+      </select>
     </div>
     <div class="filter-count" data-row-count="tblLedger">{{ ledger | length }} records</div>
   </div>
@@ -139,18 +183,27 @@
           <th data-sortable>Payment ID</th>
           <th data-sortable>Invoice No</th>
           <th data-sortable>Student ID</th>
+          <th data-sortable>Student Information</th>
           <th data-sortable>Total Billed (₹)</th>
           <th data-sortable>Amount Paid (₹)</th>
           <th data-sortable>Due Date</th>
           <th data-sortable>Payment Status</th>
+          <th>Action</th>
         </tr>
       </thead>
       <tbody>
         {% for l in ledger %}
-        <tr>
+        <tr data-status="{{ l.payment_status }}" data-student-id="{{ l.student_id }}">
           <td class="mono">{{ l.payment_id }}</td>
           <td class="mono"><strong>{{ l.invoice_no }}</strong></td>
           <td class="mono">{{ l.student_id }}</td>
+          <td>
+            {% if l.reg_no %}
+            <span class="mono"><strong>{{ l.reg_no }}</strong></span> &mdash; {{ l.first_name }} {{ l.last_name }}
+            {% else %}
+            <span style="color: var(--text-secondary);">Student #{{ l.student_id }}</span>
+            {% endif %}
+          </td>
           <td class="mono">₹{{ "{:,.2f}".format(l.total_amount | float) if l.total_amount is defined and l.total_amount is not none else l.total_amount }}</td>
           <td class="mono">₹{{ "{:,.2f}".format(l.paid_amount | float) if l.paid_amount is defined and l.paid_amount is not none else l.paid_amount }}</td>
           <td class="mono">{{ l.due_date }}</td>
@@ -164,84 +217,70 @@
             <span class="badge badge-overdue">OVERDUE</span>
             {% endif %}
           </td>
+          <td>
+            {% set bal = (l.total_amount | float) - (l.paid_amount | float) %}
+            {% if bal > 0 %}
+            <button type="button" class="btn btn-secondary btn-sm"
+                    data-record-payment
+                    data-invoice-no="{{ l.invoice_no }}"
+                    data-balance-due="{{ bal }}">
+              Pay
+            </button>
+            {% else %}
+            <span style="color: var(--text-secondary); font-size: 12px;">Settled</span>
+            {% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No payment records found.</td></tr>
+        <tr><td colspan="9" style="text-align: center; color: var(--text-secondary);">No payment records found.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
 
-<!-- Issue New Fee Due Record / Invoice Form Card -->
+<!-- 5. Revenue Summary KPIs (Analytical View: v_accounts_fee_summary) -->
 <div class="card">
   <div class="card-header">
-    <h3>Issue New Student Fee Invoice &amp; Dues</h3>
-    <div class="header-meta">Billing &amp; Invoicing &bull; Adds to <code class="mono">FEE_PAYMENT</code></div>
+    <h3>Revenue Aggregation &amp; Fee Collection Summary KPIs</h3>
+    <div class="header-meta">Analytical View: <code class="mono">v_accounts_fee_summary</code></div>
   </div>
 
-  <form method="POST" action="/accounts/add-dues" style="margin-top: 12px;">
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
-      <div>
-        <label for="dueStudentSelect" class="form-label">Student *</label>
-        <select id="dueStudentSelect" name="student_id" class="form-control" required>
-          {% for s in students %}
-          <option value="{{ s.student_id }}">
-            {{ s.reg_no }} &mdash; {{ s.first_name }} {{ s.last_name }}
-          </option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div>
-        <label for="dueInvoiceNo" class="form-label">Invoice Number *</label>
-        <input type="text" id="dueInvoiceNo" name="invoice_no" placeholder="e.g. INV-2026-005" class="form-control mono" required>
-      </div>
-
-      <div>
-        <label for="dueTotalAmount" class="form-label">Total Amount Due (₹) *</label>
-        <input type="number" id="dueTotalAmount" step="0.01" min="1.00" name="total_amount" placeholder="e.g. 195000.00" class="form-control mono" required>
-      </div>
-
-      <div>
-        <label for="duePaidAmount" class="form-label">Initial Amount Paid (₹)</label>
-        <input type="number" id="duePaidAmount" step="0.01" min="0.00" name="paid_amount" value="0.00" class="form-control mono">
-      </div>
-
-      <div>
-        <label for="dueDateInput" class="form-label">Payment Due Date *</label>
-        <input type="date" id="dueDateInput" name="due_date" class="form-control" value="2026-11-15" required>
-      </div>
-    </div>
-
-    <button type="submit" class="btn btn-primary">Create Invoice &amp; Record Dues</button>
-  </form>
-</div>
-
-<!-- Inline Payment Recording Form Card -->
-<div class="card">
-  <div class="card-header">
-    <h3>Record Fee Payment Update</h3>
-    <div class="header-meta">Direct Invoicing Transaction &bull; Updates <code class="mono">FEE_PAYMENT</code></div>
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Payment Status</th>
+          <th>Invoice Count</th>
+          <th>Total Billed Amount (₹)</th>
+          <th>Total Collected Amount (₹)</th>
+          <th>Outstanding Balance Due (₹)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in summary %}
+        <tr>
+          <td>
+            {% set st = row.payment_status %}
+            {% if st == 'PAID' %}
+            <span class="badge badge-paid">PAID</span>
+            {% elif st == 'PARTIAL' %}
+            <span class="badge badge-partial">PARTIAL</span>
+            {% else %}
+            <span class="badge badge-overdue">OVERDUE</span>
+            {% endif %}
+          </td>
+          <td class="mono">{{ row.total_invoices if row.total_invoices is defined else (row.invoice_count if row.invoice_count is defined else '-') }}</td>
+          <td class="mono">₹{{ "{:,.2f}".format(row.total_billed_amount | float) if row.total_billed_amount is defined and row.total_billed_amount is not none else row.total_billed_amount }}</td>
+          <td class="mono" style="color: var(--badge-success-text); font-weight: 600;">₹{{ "{:,.2f}".format(row.total_collected_amount | float) if row.total_collected_amount is defined and row.total_collected_amount is not none else row.total_collected_amount }}</td>
+          <td class="mono" style="color: var(--badge-danger-text); font-weight: 600;">₹{{ "{:,.2f}".format(row.outstanding_balance | float) if row.outstanding_balance is defined and row.outstanding_balance is not none else row.outstanding_balance }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No revenue summary records found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-
-  <form method="POST" action="/accounts/record-payment">
-    <div style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;">
-      <div style="flex: 1; min-width: 220px;">
-        <label for="invoiceNoInput" class="form-label">Invoice Number</label>
-        <input type="text" id="invoiceNoInput" name="invoice_no" placeholder="e.g. INV-2026-003" class="form-control mono" required>
-      </div>
-
-      <div style="flex: 1; min-width: 200px;">
-        <label for="amountPaidInput" class="form-label">Payment Amount (₹)</label>
-        <input type="number" id="amountPaidInput" step="0.01" min="0.01" name="amount_paid" placeholder="Enter amount in ₹" class="form-control mono" required>
-      </div>
-
-      <div>
-        <button type="submit" class="btn btn-primary">Record Payment</button>
-      </div>
-    </div>
-  </form>
 </div>
 
 <!-- Modal Dialog for Recording Payment -->

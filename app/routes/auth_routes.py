@@ -262,7 +262,6 @@ def login():
 
     if not user:
         error_msg = "Invalid credentials. Please verify your username and password."
-        flash(error_msg, "error")
         return _render_login_view(error=error_msg, next_url=next_url), 401
 
     login_user(user)

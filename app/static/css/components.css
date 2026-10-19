@@ -242,22 +242,38 @@ tbody tr:hover {
   cursor: not-allowed;
 }
 
-/* Flash & Status Alerts */
+/* Flash & Status Alerts (Floating Toast Notifications) */
 .alert-container {
-  margin-bottom: 18px;
+  position: fixed;
+  top: 76px;
+  right: 24px;
+  z-index: 1200;
+  max-width: 440px;
+  width: calc(100% - 48px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
 }
 
 .alert {
-  padding: 10px 14px;
+  pointer-events: auto;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 12px 16px;
   border-radius: var(--radius-sm);
   font-size: 13px;
   line-height: 1.4;
-  margin-bottom: 10px;
+  margin-bottom: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  transition: opacity var(--transition-fast);
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.login-card .alert {
+  box-shadow: none;
+  margin-bottom: 16px;
 }
 
 .alert-success {

@@ -81,7 +81,7 @@ ACCOUNTS_DASHBOARD_HTML = f"""<!DOCTYPE html>
   </div>
 
   <div class="card">
-    <h2>Fee Defaulters List (Outstanding Balances)</h2>
+    <h2>Fee Defaulters Directory</h2>
     <div class="table-responsive">
       <table>
         <thead><tr><th>Invoice No</th><th>Reg No</th><th>Student Name</th><th>Total Amount</th><th>Paid Amount</th><th>Balance Due</th><th>Due Date</th><th>Status</th></tr></thead>
@@ -170,7 +170,7 @@ def accounts_dashboard():
     except Exception:
         pass
     try:
-        ledger = execute_query("SELECT * FROM FEE_PAYMENT ORDER BY payment_id;") or []
+        ledger = execute_query("SELECT f.*, s.reg_no, s.first_name, s.last_name FROM FEE_PAYMENT f LEFT JOIN STUDENT s ON f.student_id = s.student_id ORDER BY f.payment_id DESC;") or []
     except Exception:
         pass
     try:
@@ -250,15 +250,24 @@ def accounts_record_payment():
     raw_amount = request.form.get("amount_paid") or data.get("amount_paid")
 
     if not invoice_no:
-        return "Invoice number is required", 400
+        if request.is_json:
+            return jsonify({"status": "error", "message": "Invoice number is required"}), 400
+        flash("Invoice number is required to record a payment.", "danger")
+        return redirect(url_for("accounts.accounts_dashboard"))
 
     try:
         amount = float(raw_amount)
     except (TypeError, ValueError):
-        return "Invalid payment amount", 400
+        if request.is_json:
+            return jsonify({"status": "error", "message": "Invalid payment amount"}), 400
+        flash("Invalid payment amount entered.", "danger")
+        return redirect(url_for("accounts.accounts_dashboard"))
 
     if amount <= 0:
-        return "Payment amount must be positive", 400
+        if request.is_json:
+            return jsonify({"status": "error", "message": "Payment amount must be positive"}), 400
+        flash("Payment amount must be greater than zero.", "danger")
+        return redirect(url_for("accounts.accounts_dashboard"))
 
     try:
         inv = execute_query(
@@ -267,7 +276,10 @@ def accounts_record_payment():
             fetch_one=True,
         )
         if not inv:
-            return "Invoice not found", 404
+            if request.is_json:
+                return jsonify({"status": "error", "message": f"Invoice '{invoice_no}' not found."}), 404
+            flash(f"Invoice '{invoice_no}' not found in the fee payment ledger.", "danger")
+            return redirect(url_for("accounts.accounts_dashboard"))
 
         curr_paid = float(inv.get("paid_amount") or inv.get("PAID_AMOUNT") or 0.0)
         total_amount = float(inv.get("total_amount") or inv.get("TOTAL_AMOUNT") or 0.0)
@@ -281,8 +293,11 @@ def accounts_record_payment():
             (new_paid, new_status, invoice_no),
             commit=True,
         )
-    except Exception:
-        return "Database transaction failed", 500
+    except Exception as e:
+        if request.is_json:
+            return jsonify({"status": "error", "message": f"Database transaction failed: {str(e)}"}), 500
+        flash(f"Database transaction failed: {str(e)}", "danger")
+        return redirect(url_for("accounts.accounts_dashboard"))
 
     if request.is_json:
         return jsonify({
