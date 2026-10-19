@@ -19,6 +19,7 @@ from jinja2 import TemplateNotFound
 
 from app.auth import (
     ROLE_DASHBOARD_ROUTES,
+    DatabaseUnavailableError,
     authenticate_user,
     get_current_user,
     is_authenticated,
@@ -255,7 +256,14 @@ def login():
         username = data.get("username", "")
         password = data.get("password", "")
 
-    user = authenticate_user(username, password)
+    try:
+        user = authenticate_user(username, password)
+    except DatabaseUnavailableError:
+        error_msg = (
+            "Cannot connect to the database. Check that MySQL is running, your .env settings are correct, "
+            "and the requirements are installed (pip install -r requirements.txt)."
+        )
+        return _render_login_view(error=error_msg, next_url=next_url), 503
 
     if not user:
         error_msg = "Invalid credentials. Please verify your username and password."

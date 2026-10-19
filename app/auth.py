@@ -29,6 +29,10 @@ ROLE_DASHBOARD_ROUTES = {
 }
 
 
+class DatabaseUnavailableError(RuntimeError):
+    """Raised when the USER_ACCOUNT table cannot be queried (MySQL down, wrong .env, missing driver)."""
+
+
 def verify_password(stored, supplied):
     """Checks a supplied password against the one stored in USER_ACCOUNT (exact match only)."""
     stored = str(stored or "")
@@ -69,7 +73,7 @@ def authenticate_user(username, password):
         )
     except Exception as e:
         print("[Auth] USER_ACCOUNT lookup exception:", e)
-        return None
+        raise DatabaseUnavailableError(str(e)) from e
 
     # An email can be shared by two accounts (e.g. 'faculty' and 'EMP1001'); accept whichever matches the password
     for u in user_rows or []:
