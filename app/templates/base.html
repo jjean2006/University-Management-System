@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Institutional Portal{% endblock %} &mdash; University Management System</title>
+  
+  <!-- Institutional Design System CSS -->
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/layout.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/dashboard.css">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <!-- Shell Topbar -->
+  <header class="app-header">
+    <div class="topbar-main">
+      <div class="brand-section">
+        <div class="brand-logo-mark" aria-hidden="true">UMS</div>
+        <div class="brand-titles">
+          <h1>University Management System</h1>
+          <div class="subtitle">Academic Year 2026 &bull; Institutional Records & Administration</div>
+        </div>
+      </div>
+
+      <div class="user-nav-section">
+        {% if session and session.get('role') %}
+        <div class="user-badge">
+          <span class="user-name">{{ session.get('display_name') or session.get('username') or 'Authenticated User' }}</span>
+          <span class="user-role badge badge-info">{{ session.get('role') | upper }}</span>
+        </div>
+        <a href="/logout" class="btn-signout" title="Terminate current active session">Sign Out</a>
+        {% else %}
+        <a href="/login" class="btn btn-primary btn-sm">Sign In</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Role Subnav Bar -->
+    {% if session and session.get('role') %}
+    <nav class="subnav-bar" aria-label="Portal Navigation">
+      <div class="subnav-inner">
+        {% set current_role = session.get('role') %}
+        {% if current_role == 'admin' %}
+        <a href="/admin/dashboard" class="nav-tab active">Academic Administration</a>
+        {% elif current_role == 'faculty' %}
+        <a href="/faculty/dashboard" class="nav-tab active">Faculty Roster & Attendance</a>
+        {% elif current_role == 'student' %}
+        <a href="/student/dashboard" class="nav-tab active">Student Academic Portal</a>
+        {% elif current_role == 'accounts' %}
+        <a href="/accounts/dashboard" class="nav-tab active">Financial Accounts & Fee Ledger</a>
+        {% elif current_role == 'warden' %}
+        <a href="/warden/dashboard" class="nav-tab active">Hostel Administration & Occupancy</a>
+        {% endif %}
+      </div>
+    </nav>
+    {% endif %}
+  </header>
+
+  <!-- Main Container -->
+  <main class="app-container">
+    <!-- Flash Messages Block -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="alert-container" aria-live="polite">
+        {% for category, message in messages %}
+          {% set alert_class = 'alert-success' if category == 'success' else ('alert-error' if category in ['error', 'danger'] else ('alert-warning' if category == 'warning' else 'alert-info')) %}
+          <div class="alert {{ alert_class }}" role="alert">
+            <span>{{ message }}</span>
+            <button type="button" class="alert-close" aria-label="Dismiss alert">&times;</button>
+          </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
+
+    <!-- Page Content Block -->
+    {% block content %}{% endblock %}
+  </main>
+
+
+  <!-- Modular Vanilla JavaScript -->
+  <script src="/static/js/main.js"></script>
+  <script src="/static/js/table-filter.js"></script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

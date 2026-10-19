@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+
+{% block title %}Student Academic Portal{% endblock %}
+
+{% block content %}
+<div class="page-header-row">
+  <div class="page-titles">
+    <h2>Student Academic Portal</h2>
+    <p>Personal profile, semester course enrollment, grade records, hostel accommodation, and fee statements.</p>
+  </div>
+  <div class="page-actions">
+    <span class="badge badge-success">Academic Standing: Good</span>
+  </div>
+</div>
+
+<!-- Student Profile & Hostel Accommodation Split Grid -->
+<div class="grid-2-col">
+  <!-- Profile Card -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Student Academic Profile</h3>
+      <div class="header-meta">Status: <span class="badge badge-info">Active Enrolled</span></div>
+    </div>
+
+    <div class="profile-meta-grid">
+      <div class="profile-meta-item">
+        <span class="label">Full Name</span>
+        <span class="val">{{ student.first_name }} {{ student.last_name }}</span>
+      </div>
+      <div class="profile-meta-item">
+        <span class="label">Registration Number</span>
+        <span class="val mono"><strong>{{ student.reg_no }}</strong></span>
+      </div>
+      <div class="profile-meta-item">
+        <span class="label">Cumulative GPA (CGPA)</span>
+        <span class="val mono">
+          <span class="badge {{ 'badge-success' if (student.cgpa | float) >= 9.0 else 'badge-info' }}" style="font-size: 13px; font-weight: 600;">
+            {{ student.cgpa }}
+          </span>
+        </span>
+      </div>
+      <div class="profile-meta-item">
+        <span class="label">Degree Programme</span>
+        <span class="val">{{ student.programme_name }} (<span class="mono">{{ student.programme_code }}</span>)</span>
+      </div>
+      <div class="profile-meta-item">
+        <span class="label">Academic Department</span>
+        <span class="val">{{ student.dept_name }}</span>
+      </div>
+      <div class="profile-meta-item">
+        <span class="label">Official Email</span>
+        <span class="val mono">{{ student.email }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hostel Room Allocation Card -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Residential Housing Allocation</h3>
+      <div class="header-meta">Hostel Administration Office</div>
+    </div>
+
+    <div style="padding: 12px 0;">
+      {% if room and room.room_number %}
+      <div class="profile-meta-grid">
+        <div class="profile-meta-item">
+          <span class="label">Hostel Block</span>
+          <span class="val"><strong>{{ room.block_name }}</strong></span>
+        </div>
+        <div class="profile-meta-item">
+          <span class="label">Allocated Room Number</span>
+          <span class="val mono" style="font-size: 16px; font-weight: 700; color: var(--brand-primary);">{{ room.room_number }}</span>
+        </div>
+        <div class="profile-meta-item">
+          <span class="label">Residential Status</span>
+          <span class="val"><span class="badge badge-success">Resident Boarder</span></span>
+        </div>
+      </div>
+      {% else %}
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span class="badge badge-info" style="font-size: 13px;">Day Scholar</span>
+        <span style="font-size: 13px; color: var(--text-secondary);">Non-Residential Student &bull; No hostel room currently allocated.</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+<!-- Enrolled Courses & Grade History -->
+<div class="card">
+  <div class="card-header">
+    <h3>Registered Courses &amp; Semester Grade History</h3>
+    <div class="header-meta">Total Courses: {{ courses | length }}</div>
+  </div>
+
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Course Code</th>
+          <th>Course Title</th>
+          <th>Credits</th>
+          <th>Enrollment Status</th>
+          <th>Grade Points</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in courses %}
+        <tr>
+          <td class="mono"><strong>{{ c.course_code }}</strong></td>
+          <td>{{ c.course_title }}</td>
+          <td class="mono">{{ c.credits }}</td>
+          <td>
+            <span class="badge {{ 'badge-success' if c.completion_status == 'COMPLETED' else 'badge-info' }}">
+              {{ c.completion_status }}
+            </span>
+          </td>
+          <td class="mono">
+            {% if c.grade_points is not none %}
+              <strong>{{ c.grade_points }}</strong>
+            {% else %}
+              <span style="color: var(--text-secondary);">&mdash;</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No courses currently enrolled.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Course Registration & Available Offerings Catalog -->
+<div class="card">
+  <div class="card-header">
+    <h3>Course Registration &amp; Available Offerings</h3>
+    <div class="header-meta">Sign up for available courses or join the waitlist</div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-input-wrap">
+      <input type="text" class="form-control" placeholder="Search available courses..." data-table-filter="tblStudentCatalog">
+    </div>
+    <div class="filter-count" data-row-count="tblStudentCatalog">{{ available_courses | length }} courses available</div>
+  </div>
+
+  <div class="table-responsive">
+    <table id="tblStudentCatalog">
+      <thead>
+        <tr>
+          <th data-sortable>Course Code</th>
+          <th data-sortable>Course Title</th>
+          <th data-sortable>Department</th>
+          <th data-sortable>Credits</th>
+          <th data-sortable>Prerequisite</th>
+          <th data-sortable>Available Seats</th>
+          <th style="min-width: 170px;">Enrollment Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in available_courses %}
+        <tr>
+          <td class="mono"><strong>{{ c.course_code }}</strong></td>
+          <td>{{ c.course_title }}</td>
+          <td>{{ c.dept_name }} (<span class="mono">{{ c.dept_code }}</span>)</td>
+          <td class="mono">{{ c.credits }}</td>
+          <td class="mono">
+            {% if c.prereq_code %}
+              <span class="badge badge-info">{{ c.prereq_code }}</span>
+            {% else %}
+              <span style="color: var(--text-secondary);">None</span>
+            {% endif %}
+          </td>
+          <td class="mono">
+            <span class="badge {{ 'badge-danger' if c.available_seats == 0 else 'badge-success' }}">
+              {{ c.available_seats }} / {{ c.capacity }}
+            </span>
+          </td>
+          <td>
+            {% if c.is_enrolled %}
+              <span class="badge badge-success">Enrolled</span>
+            {% elif c.is_waitlisted %}
+              <span class="badge badge-warning">Waitlisted (#{{ c.waitlist_pos }})</span>
+            {% elif c.available_seats > 0 %}
+              <form method="POST" action="/student/courses/enroll" style="margin: 0;">
+                <input type="hidden" name="course_id" value="{{ c.course_id }}">
+                <button type="submit" class="btn btn-primary btn-sm">Sign Up / Enroll</button>
+              </form>
+            {% else %}
+              <form method="POST" action="/student/courses/waitlist" style="margin: 0;">
+                <input type="hidden" name="course_id" value="{{ c.course_id }}">
+                <button type="submit" class="btn btn-secondary btn-sm">Join Waitlist</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No courses available in catalog.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Course Waitlists If Present -->
+{% if waitlists %}
+<div class="card">
+  <div class="card-header">
+    <h3>Course Waitlist Applications</h3>
+    <div class="header-meta">Pending Capacity Allocation</div>
+  </div>
+
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Course Code</th>
+          <th>Course Title</th>
+          <th>Priority Queue Position</th>
+          <th>Waitlist Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in waitlists %}
+        <tr>
+          <td class="mono"><strong>{{ w.course_code }}</strong></td>
+          <td>{{ w.course_title }}</td>
+          <td class="mono">
+            <span class="badge badge-warning">Position #{{ w.priority_position }}</span>
+          </td>
+          <td>
+            <span class="badge badge-info">{{ w.status }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Fee Payment Invoices Table -->
+<div class="card">
+  <div class="card-header">
+    <h3>Tuition Fee Invoices & Payment Ledger</h3>
+    <div class="header-meta">Bursar Billing Record</div>
+  </div>
+
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Invoice No</th>
+          <th>Description</th>
+          <th>Total Billed (₹)</th>
+          <th>Amount Paid (₹)</th>
+          <th>Due Date</th>
+          <th>Payment Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in fees %}
+        <tr>
+          <td class="mono"><strong>{{ f.invoice_no }}</strong></td>
+          <td>Semester Academic Tuition Fee</td>
+          <td class="mono">₹{{ "{:,.2f}".format(f.total_amount | float) if f.total_amount is defined and f.total_amount is not none else f.total_amount }}</td>
+          <td class="mono">₹{{ "{:,.2f}".format(f.paid_amount | float) if f.paid_amount is defined and f.paid_amount is not none else f.paid_amount }}</td>
+          <td class="mono">{{ f.due_date }}</td>
+          <td>
+            {% set p_status = f.payment_status %}
+            {% if p_status == 'PAID' %}
+            <span class="badge badge-paid">PAID</span>
+            {% elif p_status == 'PARTIAL' %}
+            <span class="badge badge-partial">PARTIAL</span>
+            {% else %}
+            <span class="badge badge-overdue">OVERDUE</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No fee payment invoices found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

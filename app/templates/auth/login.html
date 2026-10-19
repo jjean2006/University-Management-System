@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Institutional Portal Sign In &mdash; University Management System</title>
+  
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/layout.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body class="auth-wrapper">
+  <div class="login-card">
+    <div class="login-header">
+      <div class="brand-logo-mark" style="margin: 0 auto 12px auto;" aria-hidden="true">UMS</div>
+      <h1>University Management System</h1>
+      <p>Institutional Portal Sign In &bull; Academic Year 2026</p>
+    </div>
+
+    <!-- Flash & Error Alert Block -->
+    {% if error %}
+    <div class="alert alert-error" role="alert">
+      <span>{{ error }}</span>
+    </div>
+    {% endif %}
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          {% set alert_class = 'alert-success' if category == 'success' else ('alert-error' if category in ['error', 'danger'] else ('alert-warning' if category == 'warning' else 'alert-info')) %}
+          <div class="alert {{ alert_class }}" role="alert">
+            <span>{{ message }}</span>
+            <button type="button" class="alert-close" aria-label="Close">&times;</button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST" action="/login" id="loginForm">
+      {% if next_url %}
+      <input type="hidden" name="next" value="{{ next_url }}">
+      {% endif %}
+      
+      <div class="form-group">
+        <label for="username" class="form-label">Username, EMP Code, or Reg No</label>
+        <input type="text" id="username" name="username" class="form-control" placeholder="e.g. admin, faculty, 25BAI0077" required autofocus autocomplete="username">
+      </div>
+
+      <div class="form-group">
+        <label for="password" class="form-label">Account Password</label>
+        <input type="password" id="password" name="password" class="form-control" placeholder="Enter password" required autocomplete="current-password">
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 8px;">Sign In to Account</button>
+    </form>
+
+  </div>
+
+  <script src="/static/js/main.js"></script>
+</body>
+</html>

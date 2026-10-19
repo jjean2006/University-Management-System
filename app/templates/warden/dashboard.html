@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}Hostel Warden Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header-row">
+  <div class="page-titles">
+    <h2>Hostel Administration & Resident Directory</h2>
+    <p>Chief Hostel Warden &bull; Block capacities, bed allocation matrices, and residential student roster.</p>
+  </div>
+  <div class="page-actions">
+    <span class="badge badge-info">Hostel Operations Active</span>
+  </div>
+</div>
+
+<!-- KPI Metric Cards Grid -->
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-label">Hostel Blocks</div>
+    <div class="kpi-value">{{ blocks | length }}</div>
+    <div class="kpi-subtext">Men & Ladies accommodation</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Residential Rooms</div>
+    <div class="kpi-value">{{ rooms | length }}</div>
+    <div class="kpi-subtext">Active residential units</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Boarding Residents</div>
+    <div class="kpi-value">{{ residents | length }}</div>
+    <div class="kpi-subtext">Registered hostel residents</div>
+  </div>
+</div>
+
+<!-- Hostel Block Capacities Table -->
+<div class="card">
+  <div class="card-header">
+    <h3>Hostel Block Capacities & Overview</h3>
+    <div class="header-meta">Total: {{ blocks | length }} Blocks</div>
+  </div>
+
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Block ID</th>
+          <th>Hostel Block Name</th>
+          <th>Gender Allocation</th>
+          <th>Total Bed Capacity</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in blocks %}
+        <tr>
+          <td class="mono">{{ b.block_id }}</td>
+          <td><strong>{{ b.block_name }}</strong></td>
+          <td class="mono">
+            <span class="badge {{ 'badge-info' if b.gender_type == 'M' else 'badge-warning' }}">
+              {{ 'Male (Men)' if b.gender_type == 'M' else 'Female (Ladies)' }}
+            </span>
+          </td>
+          <td class="mono">{{ b.total_capacity }} Beds</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No hostel blocks found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Room Occupancy Matrix (v_warden_occupancy_overview) -->
+<div class="card">
+  <div class="card-header">
+    <h3>Room Occupancy & Vacant Bed Inventory Matrix</h3>
+    <div class="header-meta">Analytical View: <code class="mono">v_warden_occupancy_overview</code></div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-input-wrap">
+      <input type="text" class="form-control" placeholder="Search rooms by block, room number..." data-table-filter="tblRooms">
+    </div>
+    <div class="filter-count" data-row-count="tblRooms">{{ rooms | length }} records</div>
+  </div>
+
+  <div class="table-responsive">
+    <table id="tblRooms">
+      <thead>
+        <tr>
+          <th data-sortable>Block Name</th>
+          <th data-sortable>Room Number</th>
+          <th data-sortable>Floor</th>
+          <th data-sortable>Capacity</th>
+          <th data-sortable>Occupied Beds</th>
+          <th data-sortable>Vacant Beds</th>
+          <th data-sortable>Monthly Rent (₹)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rooms %}
+        <tr>
+          <td><strong>{{ r.block_name }}</strong></td>
+          <td class="mono"><strong>{{ r.room_number }}</strong></td>
+          <td class="mono">{{ r.floor_number }}</td>
+          <td class="mono">{{ r.capacity }}</td>
+          <td class="mono">{{ r.occupied_beds }}</td>
+          <td class="mono">
+            <span class="badge {{ 'badge-danger' if (r.vacant_beds | int) == 0 else 'badge-success' }}">
+              {{ r.vacant_beds }} Vacant
+            </span>
+          </td>
+          <td class="mono">₹{{ "{:,.2f}".format(r.monthly_rent | float) if r.monthly_rent is defined and r.monthly_rent is not none else r.monthly_rent }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No room occupancy records found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Hostel Resident Roster (v_warden_resident_directory) -->
+<div class="card">
+  <div class="card-header">
+    <h3>Hostel Resident Student Directory (Residential Boarders Only)</h3>
+    <div class="header-meta">Analytical View: <code class="mono">v_warden_resident_directory</code> &bull; Excludes Day Scholars</div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-input-wrap">
+      <input type="text" class="form-control" placeholder="Search resident directory..." data-table-filter="tblResidents">
+    </div>
+    <div class="filter-count" data-row-count="tblResidents">{{ residents | length }} records</div>
+  </div>
+
+  <div class="table-responsive">
+    <table id="tblResidents">
+      <thead>
+        <tr>
+          <th data-sortable>Reg No</th>
+          <th data-sortable>Resident Full Name</th>
+          <th data-sortable>Gender</th>
+          <th data-sortable>Hostel Block</th>
+          <th data-sortable>Room Number</th>
+          <th data-sortable>Degree Programme</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for res in residents %}
+        <tr>
+          <td class="mono"><strong>{{ res.reg_no }}</strong></td>
+          <td>{{ res.student_name }}</td>
+          <td class="mono">{{ res.gender }}</td>
+          <td>{{ res.block_name }}</td>
+          <td class="mono"><strong>{{ res.room_number }}</strong></td>
+          <td>{{ res.programme_name }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No residential students found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

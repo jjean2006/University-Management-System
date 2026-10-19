@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+
+{% block title %}Faculty Academic Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header-row">
+  <div class="page-titles">
+    <h2>Faculty Academic Dashboard & Lecture Attendance</h2>
+    <p>{{ user.display_name if user and user.display_name else 'Dr. Ramesh Kumar' }} &bull; Employee Code: <span class="mono">{{ user.username if user and user.username else 'EMP1001' }}</span> &bull; Academic Year 2026</p>
+  </div>
+  <div class="page-actions">
+    <span class="badge badge-info">Faculty Instruction Portal</span>
+  </div>
+</div>
+
+<!-- KPI Metric Cards Grid -->
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-label">Assigned Courses</div>
+    <div class="kpi-value">{{ courses | length }}</div>
+    <div class="kpi-subtext">Active semester lecture sections</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Enrolled Roster Size</div>
+    <div class="kpi-value">{{ roster | length }}</div>
+    <div class="kpi-subtext">Total course enrollments</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Attendance Shortages (&lt; 75%)</div>
+    <div class="kpi-value" style="color: var(--badge-danger-text);">{{ shortages | length }}</div>
+    <div class="kpi-subtext">Students requiring debarment warning</div>
+  </div>
+</div>
+
+<!-- Attendance Shortage Alerts (< 75%) Table (v_faculty_attendance_shortage) -->
+{% if shortages %}
+<div class="card" style="border-left: 3px solid var(--badge-danger-text);">
+  <div class="card-header">
+    <h3>Attendance Shortage Warning List (&lt; 75% Minimum Threshold)</h3>
+    <div class="header-meta">Analytical View: <code class="mono">v_faculty_attendance_shortage</code></div>
+  </div>
+
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Reg No</th>
+          <th>Student Full Name</th>
+          <th>Course Code</th>
+          <th>Classes Conducted</th>
+          <th>Classes Attended</th>
+          <th>Attendance Percentage</th>
+          <th>Academic Standing</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sh in shortages %}
+        <tr>
+          <td class="mono"><strong>{{ sh.reg_no }}</strong></td>
+          <td>{{ sh.student_name }}</td>
+          <td class="mono"><strong>{{ sh.course_code }}</strong></td>
+          <td class="mono">{{ sh.total_classes_conducted }}</td>
+          <td class="mono">{{ sh.classes_attended }}</td>
+          <td class="mono">
+            <span class="badge badge-danger">
+              {{ "{:.2f}".format(sh.attendance_percentage | float) if sh.attendance_percentage is defined and sh.attendance_percentage is not none else sh.attendance_percentage }}%
+            </span>
+          </td>
+          <td>
+            <span class="badge badge-danger">Shortage Alert</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Assigned Courses Table -->
+<div class="card">
+  <div class="card-header">
+    <h3>Assigned Lecture Sections & Enrollment Capacity</h3>
+    <div class="header-meta">Total: {{ courses | length }} Assigned Courses</div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-input-wrap">
+      <input type="text" class="form-control" placeholder="Search assigned courses..." data-table-filter="tblCourses">
+    </div>
+    <div class="filter-count" data-row-count="tblCourses">{{ courses | length }} records</div>
+  </div>
+
+  <div class="table-responsive">
+    <table id="tblCourses">
+      <thead>
+        <tr>
+          <th data-sortable>Course Code</th>
+          <th data-sortable>Course Title</th>
+          <th data-sortable>Credits</th>
+          <th data-sortable>Capacity</th>
+          <th data-sortable>Available Seats</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in courses %}
+        <tr>
+          <td class="mono"><strong>{{ c.course_code }}</strong></td>
+          <td>{{ c.course_title }}</td>
+          <td class="mono">{{ c.credits }}</td>
+          <td class="mono">{{ c.capacity }}</td>
+          <td class="mono">
+            <span class="badge {{ 'badge-danger' if (c.available_seats | int) == 0 else 'badge-success' }}">
+              {{ c.available_seats }} Seats
+            </span>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No assigned courses found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Active Course Roster (v_faculty_view) -->
+<div class="card">
+  <div class="card-header">
+    <h3>Active Enrolled Student Roster</h3>
+    <div class="header-meta">Source View: <code class="mono">v_faculty_view</code></div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-input-wrap">
+      <input type="text" class="form-control" placeholder="Search roster by Reg No, Student Name..." data-table-filter="tblRoster">
+    </div>
+    <div class="filter-count" data-row-count="tblRoster">{{ roster | length }} records</div>
+  </div>
+
+  <div class="table-responsive">
+    <table id="tblRoster">
+      <thead>
+        <tr>
+          <th data-sortable>Reg No</th>
+          <th data-sortable>Student Full Name</th>
+          <th data-sortable>Course Code</th>
+          <th data-sortable>Course Title</th>
+          <th data-sortable>Enrollment Date</th>
+          <th data-sortable>Completion Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in roster %}
+        <tr>
+          <td class="mono"><strong>{{ r.reg_no }}</strong></td>
+          <td>{{ r.student_name if r.student_name else (r.first_name ~ ' ' ~ r.last_name) }}</td>
+          <td class="mono"><strong>{{ r.course_code }}</strong></td>
+          <td>{{ r.course_title }}</td>
+          <td class="mono">{{ r.enrollment_date if r.enrollment_date else '2026-08-01' }}</td>
+          <td>
+            <span class="badge {{ 'badge-success' if r.completion_status == 'COMPLETED' else 'badge-info' }}">
+              {{ r.completion_status }}
+            </span>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No enrolled students found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Individual Student Attendance Form Card -->
+<div class="card">
+  <div class="card-header">
+    <h3>Mark Attendance for a Selected Student</h3>
+    <div class="header-meta">Individual Entry &bull; Updates <code class="mono">ATTENDANCE</code></div>
+  </div>
+
+  <form method="POST" action="/faculty/attendance" style="margin-top: 12px;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+      <div>
+        <label for="indCourseSelect" class="form-label">Course Section *</label>
+        <select id="indCourseSelect" name="course_id" class="form-control" required>
+          {% for c in courses %}
+          <option value="{{ c.course_id }}">
+            {{ c.course_code }} &mdash; {{ c.course_title }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label for="indStudentSelect" class="form-label">Select Student *</label>
+        <select id="indStudentSelect" name="student_id" class="form-control" required>
+          {% for s in students %}
+          <option value="{{ s.student_id }}">
+            {{ s.reg_no }} &mdash; {{ s.first_name }} {{ s.last_name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label for="indDate" class="form-label">Lecture Date *</label>
+        <input type="date" id="indDate" name="attendance_date" class="form-control" value="2026-10-19" required>
+      </div>
+
+      <div>
+        <label for="indStatus" class="form-label">Attendance Status *</label>
+        <select id="indStatus" name="status" class="form-control" required>
+          <option value="Present" selected>Present</option>
+          <option value="Absent">Absent</option>
+        </select>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Submit Attendance for Selected Student</button>
+  </form>
+</div>
+
+<!-- Interactive Attendance Recording Form (Batch Sheet) -->
+<div class="card">
+  <div class="card-header">
+    <h3>Batch Class Attendance Sheet</h3>
+    <div class="header-meta">Direct Table Commit: <code class="mono">ATTENDANCE</code></div>
+  </div>
+
+  <form method="POST" action="/faculty/attendance" id="facultyAttendanceForm">
+    <div style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px;">
+      <div style="flex: 1; min-width: 280px;">
+        <label for="courseSelect" class="form-label">Course Section</label>
+        <select id="courseSelect" name="course_id" class="form-control" required>
+          {% for c in courses %}
+          <option value="{{ c.course_id }}" {% if loop.first %}selected{% endif %}>
+            {{ c.course_code }} &mdash; {{ c.course_title }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="width: 200px;">
+        <label for="attDate" class="form-label">Lecture Date</label>
+        <input type="date" id="attDate" name="attendance_date" class="form-control" value="2026-10-19" required>
+      </div>
+    </div>
+
+    <!-- Quick Batch Actions Bar & Live Preview -->
+    <div class="attendance-actions-bar">
+      <div style="display: flex; gap: 8px;">
+        <button type="button" class="btn btn-secondary btn-sm" id="btnMarkAllPresent">Select All Present</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btnMarkAllAbsent">Select All Absent</button>
+      </div>
+      <div class="attendance-stats-badge">
+        Live Class Attendance: <span id="attendanceLiveCount">0 / 0 Present</span> &bull; <span id="attendanceLivePct" class="badge badge-success">100.0%</span>
+      </div>
+    </div>
+
+    <div class="table-responsive" style="margin-bottom: 16px;">
+      <table id="attendanceTable">
+        <thead>
+          <tr>
+            <th style="width: 160px;">Registration No</th>
+            <th>Student Full Name</th>
+            <th style="width: 240px;">Attendance Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in students %}
+          <tr>
+            <td class="mono"><strong>{{ s.reg_no }}</strong></td>
+            <td>{{ s.first_name }} {{ s.last_name }}</td>
+            <td>
+              <div class="attendance-radio-group">
+                <label class="attendance-radio-label">
+                  <input type="radio" name="status_{{ s.student_id }}" value="Present" checked>
+                  <span class="badge badge-success" style="font-size: 10.5px;">Present</span>
+                </label>
+                <label class="attendance-radio-label">
+                  <input type="radio" name="status_{{ s.student_id }}" value="Absent">
+                  <span class="badge badge-danger" style="font-size: 10.5px;">Absent</span>
+                </label>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">No student records available for attendance marking.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Submit Daily Lecture Attendance</button>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/attendance.js"></script>
+{% endblock %}

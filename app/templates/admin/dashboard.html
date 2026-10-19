@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+
+{% block title %}Academic Administration Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header-row">
+  <div class="page-titles">
+    <h2>Academic Administration Dashboard</h2>
+    <p>University governance, department budgeting, faculty directories, and student enrollment overview.</p>
+  </div>
+  <div class="page-actions">
+    <span class="badge badge-info">System Governance Active</span>
+  </div>
+</div>
+
+<!-- KPI Metric Cards Grid -->
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-label">Academic Departments</div>
+    <div class="kpi-value">{{ depts | length }}</div>
+    <div class="kpi-subtext">Active schools & faculties</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Degree Programmes</div>
+    <div class="kpi-value">{{ progs | length }}</div>
+    <div class="kpi-subtext">Undergraduate & postgraduate</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Faculty Members</div>
+    <div class="kpi-value">{{ faculty | length }}</div>
+    <div class="kpi-subtext">Professors & instructors</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Enrolled Students</div>
+    <div class="kpi-value">{{ students | length }}</div>
+    <div class="kpi-subtext">Active degree candidates</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Monitored Courses</div>
+    <div class="kpi-value">{{ waitlists | length }}</div>
+    <div class="kpi-subtext">Waitlist & capacity tracking</div>
+  </div>
+</div>
+
+<!-- Departments Table -->
+<div class="card">
+  <div class="card-header">
+    <h3>Academic Departments & Budgetary Allocations</h3>
+    <div class="header-meta">Total: {{ depts | length }} Departments</div>
+  </div>
+  
+  <div class="filter-bar">
+    <div class="filter-input-wrap">
+      <input type="text" class="form-control" placeholder="Search departments..." data-table-filter="tblDepts">
+    </div>
+    <div class="filter-count" data-row-count="tblDepts">{{ depts | length }} records</div>
+  </div>
+
+  <div class="table-responsive">
+    <table id="tblDepts">
+      <thead>
+        <tr>
+          <th data-sortable>Dept ID</th>
+          <th data-sortable>Code</th>
+          <th data-sortable>Department Name</th>
+          <th data-sortable>Annual Budget (₹)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in depts %}
+        <tr>
+          <td class="mono">{{ d.dept_id }}</td>
+          <td class="mono"><strong>{{ d.dept_code }}</strong></td>
+          <td>{{ d.dept_name }}</td>
+          <td class="mono">₹{{ "{:,.2f}".format(d.budget | float) if d.budget is defined and d.budget is not none else d.budget }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No academic departments found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Degree Programmes Table -->
+<div class="card">
+  <div class="card-header">
+    <h3>Degree Programmes Directory</h3>
+    <div class="header-meta">Total: {{ progs | length }} Programmes</div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-input-wrap">
+      <input type="text" class="form-control" placeholder="Search degree programmes..." data-table-filter="tblProgs">
+    </div>
+    <div class="filter-count" data-row-count="tblProgs">{{ progs | length }} records</div>
+  </div>
+
+  <div class="table-responsive">
+    <table id="tblProgs">
+      <thead>
+        <tr>
+          <th data-sortable>Programme ID</th>
+          <th data-sortable>Programme Code</th>
+          <th data-sortable>Programme Name</th>
+          <th data-sortable>Department ID</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in progs %}
+        <tr>
+          <td class="mono">{{ p.programme_id }}</td>
+          <td class="mono"><strong>{{ p.programme_code }}</strong></td>
+          <td>{{ p.programme_name }}</td>
+          <td class="mono">{{ p.dept_id }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No degree programmes found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Faculty Directory Table -->
+<div class="card">
+  <div class="card-header">
+    <h3>University Faculty Directory</h3>
+    <div class="header-meta">Total: {{ faculty | length }} Faculty Members</div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-input-wrap">
+      <input type="text" class="form-control" placeholder="Search faculty by name, code, email..." data-table-filter="tblFaculty">
+    </div>
+    <div class="filter-count" data-row-count="tblFaculty">{{ faculty | length }} records</div>
+  </div>
+
+  <div class="table-responsive">
+    <table id="tblFaculty">
+      <thead>
+        <tr>
+          <th data-sortable>Employee Code</th>
+          <th data-sortable>Faculty Full Name</th>
+          <th data-sortable>Official Email</th>
+          <th data-sortable>Academic Designation</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in faculty %}
+        <tr>
+          <td class="mono"><strong>{{ f.employee_code }}</strong></td>
+          <td>{{ f.first_name }} {{ f.last_name }}</td>
+          <td class="mono">{{ f.email }}</td>
+          <td>{{ f.designation }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No faculty members found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Student Directory View Table (v_admin_student_directory) -->
+<div class="card">
+  <div class="card-header">
+    <h3>Student Directory & Academic Performance Overview</h3>
+    <div class="header-meta">Source View: <code class="mono">v_admin_student_directory</code></div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-input-wrap">
+      <input type="text" class="form-control" placeholder="Search students by Reg No, Name, Programme..." data-table-filter="tblStudents">
+    </div>
+    <div class="filter-count" data-row-count="tblStudents">{{ students | length }} records</div>
+  </div>
+
+  <div class="table-responsive">
+    <table id="tblStudents">
+      <thead>
+        <tr>
+          <th data-sortable>Registration No</th>
+          <th data-sortable>Student Full Name</th>
+          <th data-sortable>Degree Programme</th>
+          <th data-sortable>Academic Department</th>
+          <th data-sortable>Cumulative GPA (CGPA)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in students %}
+        <tr>
+          <td class="mono"><strong>{{ s.reg_no }}</strong></td>
+          <td>{{ s.student_name }}</td>
+          <td>{{ s.programme_name }}</td>
+          <td>{{ s.dept_name }}</td>
+          <td class="mono">
+            <span class="badge {{ 'badge-success' if (s.cgpa | float) >= 9.0 else ('badge-info' if (s.cgpa | float) >= 7.5 else 'badge-warning') }}">
+              {{ s.cgpa }}
+            </span>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No student directory records found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add New Course Form Card -->
+<div class="card">
+  <div class="card-header">
+    <h3>Add New Course Offering</h3>
+    <div class="header-meta">Academic Catalog Management</div>
+  </div>
+
+  <form method="POST" action="/admin/courses/add" style="margin-top: 12px;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+      <div>
+        <label for="course_code" class="form-label">Course Code *</label>
+        <input type="text" id="course_code" name="course_code" class="form-control" placeholder="e.g. CSE3001" required>
+      </div>
+
+      <div>
+        <label for="course_title" class="form-label">Course Title *</label>
+        <input type="text" id="course_title" name="course_title" class="form-control" placeholder="e.g. Software Engineering" required>
+      </div>
+
+      <div>
+        <label for="credits" class="form-label">Credits *</label>
+        <input type="number" id="credits" name="credits" class="form-control" value="4" min="1" max="6" required>
+      </div>
+
+      <div>
+        <label for="capacity" class="form-label">Total Capacity *</label>
+        <input type="number" id="capacity" name="capacity" class="form-control" value="60" min="1" max="300" required>
+      </div>
+
+      <div>
+        <label for="dept_id" class="form-label">Department *</label>
+        <select id="dept_id" name="dept_id" class="form-control" required>
+          {% for d in depts %}
+          <option value="{{ d.dept_id }}">{{ d.dept_code }} &mdash; {{ d.dept_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label for="prereq_course_id" class="form-label">Prerequisite Course</label>
+        <select id="prereq_course_id" name="prereq_course_id" class="form-control">
+          <option value="">None (No Prerequisite)</option>
+          {% for c in courses %}
+          <option value="{{ c.course_id }}">{{ c.course_code }} &mdash; {{ c.course_title }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Create Course Offering</button>
+  </form>
+</div>
+
+<!-- Course Catalog & Waitlists View Table -->
+<div class="card">
+  <div class="card-header">
+    <h3>University Course Catalog & Capacity Overview</h3>
+    <div class="header-meta">Source View: <code class="mono">v_admin_course_waitlist</code></div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-input-wrap">
+      <input type="text" class="form-control" placeholder="Search course catalog..." data-table-filter="tblWaitlists">
+    </div>
+    <div class="filter-count" data-row-count="tblWaitlists">{{ waitlists | length }} records</div>
+  </div>
+
+  <div class="table-responsive">
+    <table id="tblWaitlists">
+      <thead>
+        <tr>
+          <th data-sortable>Course Code</th>
+          <th data-sortable>Course Title</th>
+          <th data-sortable>Dept</th>
+          <th data-sortable>Capacity</th>
+          <th data-sortable>Available Seats</th>
+          <th data-sortable>Enrolled Students</th>
+          <th data-sortable>Waitlisted Students</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in waitlists %}
+        <tr>
+          <td class="mono"><strong>{{ w.course_code }}</strong></td>
+          <td>{{ w.course_title }}</td>
+          <td class="mono">{{ w.dept_code }}</td>
+          <td class="mono">{{ w.capacity }}</td>
+          <td class="mono">
+            <span class="badge {{ 'badge-danger' if (w.available_seats | int) == 0 else 'badge-success' }}">
+              {{ w.available_seats }}
+            </span>
+          </td>
+          <td class="mono">{{ w.enrolled_students }}</td>
+          <td class="mono">
+            <span class="badge {{ 'badge-warning' if (w.total_waitlisted | int) > 0 else 'badge-info' }}">
+              {{ w.total_waitlisted }} Waitlisted
+            </span>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No course records found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
