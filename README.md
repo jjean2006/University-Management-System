@@ -8,7 +8,7 @@ A modular, clean, and high-performance web frontend and Flask backend for a comp
 
 - **Backend**: Python 3.12, Flask 3.1, `mysql-connector-python`
 - **Database**: MySQL 8.0 (`university_db`), user `jacob` / password `password`
-- **Relational Schema**: 12 normalized relational tables (Level 0 through Level 4 foreign key dependencies)
+- **Relational Schema**: 13 normalized relational tables (including `USER_ACCOUNT` for unified credentials)
 - **Analytical Views**: 6 analytical database views (`v_admin_student_directory`, `v_faculty_attendance_shortage`, `v_accounts_fee_summary`, `v_accounts_defaulters_list`, `v_warden_occupancy_overview`, `v_warden_resident_directory`)
 - **Frontend**: Server-rendered Jinja2 templates, semantic HTML5, modular Vanilla CSS & JS (zero npm build step required)
 - **Design Philosophy**: Strictly neutral, institutional typography, high data density, subtle 150ms transitions, and strict adherence to the Anti-AI design checklist (no flashy neons, no purple gradients, no heavy drop shadows, no glassmorphism).
@@ -22,6 +22,8 @@ A modular, clean, and high-performance web frontend and Flask backend for a comp
 - Degree programmes catalog and faculty/student directories.
 - Real-time course enrollment capacity and waitlist monitor.
 - **Add New Course Offering**: Interactive form to create new courses with code, title, credits, capacity, department, and prerequisites.
+- **Add Institutional User & Entity Account**: Provision users for any institutional role (`student`, `faculty`, `admin`, `accounts`, `warden`). If an entity table exists (`STUDENT` or `FACULTY`), all required relational attributes are entered and inserted into the table, simultaneously creating a login account in `USER_ACCOUNT`.
+- **System User Accounts Directory**: Live audit table showing all active login accounts, assigned roles, display names, and linked entity IDs.
 
 ### 2. Faculty
 - View assigned lecture sections and course capacities.
@@ -54,16 +56,18 @@ A modular, clean, and high-performance web frontend and Flask backend for a comp
 ---
 
 ## Demo Credentials
-
-All test credentials and access scopes are documented in [`credentials.txt`](credentials.txt):
-
-| Role | Username | Password | Alternate ID | Access Scope |
-| :--- | :--- | :--- | :--- | :--- |
-| **Administrator** | `admin` | `admin123` | — | University-wide administration & course catalog |
-| **Faculty** | `faculty` | `faculty123` | `EMP1001` / `password` | Course rosters & lecture attendance marking |
-| **Student** | `student` | `student123` | `25BAI0077` / `password` | Profile, course sign-up, waitlists & fee ledger |
-| **Accounts** | `accounts` | `accounts123` | — | Revenue metrics, issuing dues & recording payments |
-| **Hostel Warden** | `warden` | `warden123` | — | Hostel blocks, vacant beds & resident directory |
+ 
+ All test credentials and access scopes are documented in [`credentials.txt`](credentials.txt):
+ 
+ | Role | Username | Password | Alternate ID | Access Scope |
+ | :--- | :--- | :--- | :--- | :--- |
+ | **Administrator** | `admin` | `admin123` | — | University-wide administration, course catalog & user provisioning |
+ | **Faculty** | `faculty` | `faculty123` | `EMP1001`, `EMP1002`, `EMP1003` / `password` | Course rosters & lecture attendance marking |
+ | **Student** | `student` | `student123` | `25BAI0077`, `25BCE0634`, `25BAI0030`, `25ECE0122`, `25BCE0899` / `password` | Profile, course sign-up, waitlists & fee ledger |
+ | **Accounts** | `accounts` | `accounts123` | — | Revenue metrics, issuing dues & recording payments |
+ | **Hostel Warden** | `warden` | `warden123` | — | Hostel blocks, vacant beds & resident directory |
+ 
+ *Note: All faculty members and students present in the database have active logins with default password `password`.*
 
 ---
 

@@ -160,8 +160,8 @@ ADMIN_DASHBOARD_HTML = f"""<!DOCTYPE html>
 @admin_bp.route("/dashboard", methods=["GET"])
 @role_required(ROLE_ADMIN)
 def admin_dashboard():
-    """Administrator Dashboard: queries departments, programmes, faculty, student directory, courses, and waitlists."""
-    depts, progs, faculty, students, waitlists, courses = [], [], [], [], [], []
+    """Administrator Dashboard: queries departments, programmes, faculty, student directory, courses, waitlists, and users."""
+    depts, progs, faculty, students, waitlists, courses, rooms, all_users = [], [], [], [], [], [], [], []
     try:
         depts = execute_query("SELECT * FROM DEPARTMENT ORDER BY dept_id;") or []
     except Exception:
@@ -192,6 +192,19 @@ def admin_dashboard():
         ) or []
     except Exception:
         pass
+    try:
+        rooms = execute_query(
+            "SELECT hr.room_id, hr.room_number, hb.block_name "
+            "FROM HOSTEL_ROOM hr "
+            "JOIN HOSTEL_BLOCK hb ON hr.block_id = hb.block_id "
+            "ORDER BY hb.block_name, hr.room_number;"
+        ) or []
+    except Exception:
+        pass
+    try:
+        all_users = execute_query("SELECT * FROM USER_ACCOUNT ORDER BY user_id DESC;") or []
+    except Exception:
+        pass
 
     try:
         return render_template(
@@ -202,6 +215,8 @@ def admin_dashboard():
             students=students,
             waitlists=waitlists,
             courses=courses,
+            rooms=rooms,
+            all_users=all_users,
         ), 200
     except TemplateNotFound:
         return render_template_string(
@@ -212,6 +227,8 @@ def admin_dashboard():
             students=students,
             waitlists=waitlists,
             courses=courses,
+            rooms=rooms,
+            all_users=all_users,
         ), 200
 
 
@@ -251,4 +268,142 @@ def admin_add_course():
         flash(f"Failed to create course {course_code}: {str(e)}", "danger")
 
     return redirect(url_for("admin.admin_dashboard"))
+
+
+@admin_bp.route("/users/add", methods=["POST"])
+@role_required(ROLE_ADMIN)
+def admin_add_user():
+    """Add a user of any role. If an entity table exists (STUDENT or FACULTY), inserts into that table with all required attributes, then creates the login user in USER_ACCOUNT."""
+    role = (request.form.get("role") or "").strip().lower()
+    password = (
+        request.form.get("password")
+        or request.form.get("password_fac")
+        or request.form.get("password_staff")
+        or ""
+    ).strip()
+
+    if not role or not password:
+        flash("Role and password are required.", "danger")
+        return redirect(url_for("admin.admin_dashboard"))
+
+    if role == "student":
+        reg_no = (request.form.get("reg_no") or "").strip().upper()
+        first_name = (request.form.get("first_name") or "").strip()
+        last_name = (request.form.get("last_name") or "").strip()
+        email = (request.form.get("email") or "").strip()
+        dob = request.form.get("dob")
+        gender = (request.form.get("gender") or "M").strip().upper()
+        raw_cgpa = request.form.get("cgpa") or "0.00"
+        raw_prog_id = request.form.get("programme_id")
+        raw_advisor_id = request.form.get("advisor_id")
+        raw_room_id = request.form.get("room_id")
+
+        if not reg_no or not first_name or not last_name or not email or not dob or not raw_prog_id:
+            flash("All required student attributes (Reg No, First Name, Last Name, Email, DOB, Programme) must be provided.", "danger")
+            return redirect(url_for("admin.admin_dashboard"))
+
+        try:
+            cgpa = float(raw_cgpa)
+            prog_id = int(raw_prog_id)
+            advisor_id = int(raw_advisor_id) if raw_advisor_id and raw_advisor_id != "None" else None
+            room_id = int(raw_room_id) if raw_room_id and raw_room_id != "None" else None
+        except (ValueError, TypeError):
+            flash("Invalid numeric value for CGPA, programme, advisor, or room.", "danger")
+            return redirect(url_for("admin.admin_dashboard"))
+
+        try:
+            # 1. Insert into STUDENT table
+            execute_query(
+                "INSERT INTO STUDENT (reg_no, first_name, last_name, email, dob, gender, cgpa, programme_id, advisor_id, room_id) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
+                (reg_no, first_name, last_name, email, dob, gender, cgpa, prog_id, advisor_id, room_id),
+                commit=True,
+            )
+            # Retrieve newly inserted student_id
+            stu_row = execute_query("SELECT student_id FROM STUDENT WHERE reg_no = %s;", (reg_no,), fetch_one=True)
+            stu_id = stu_row.get("student_id") if stu_row else None
+
+            # 2. Insert into USER_ACCOUNT
+            display_name = f"{first_name} {last_name}".strip()
+            execute_query(
+                "INSERT INTO USER_ACCOUNT (username, password_hash, role, entity_id, display_name, email) "
+                "VALUES (%s, %s, %s, %s, %s, %s) "
+                "ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = VALUES(role), entity_id = VALUES(entity_id), display_name = VALUES(display_name);",
+                (reg_no, password, "student", stu_id, display_name, email),
+                commit=True,
+            )
+            flash(f"Student {display_name} ({reg_no}) successfully added to database and login account created.", "success")
+        except Exception as e:
+            flash(f"Failed to add student: {str(e)}", "danger")
+
+    elif role == "faculty":
+        employee_code = (request.form.get("employee_code") or "").strip().upper()
+        first_name = (request.form.get("first_name_fac") or request.form.get("first_name") or "").strip()
+        last_name = (request.form.get("last_name_fac") or request.form.get("last_name") or "").strip()
+        email = (request.form.get("email_fac") or request.form.get("email") or "").strip()
+        phone = (request.form.get("phone") or "").strip()
+        designation = (request.form.get("designation") or "Professor").strip()
+        raw_dept_id = request.form.get("dept_id")
+
+        if not employee_code or not first_name or not last_name or not email or not phone or not raw_dept_id:
+            flash("All required faculty attributes (Employee Code, Name, Email, Phone, Department) must be provided.", "danger")
+            return redirect(url_for("admin.admin_dashboard"))
+
+        try:
+            dept_id = int(raw_dept_id)
+        except (ValueError, TypeError):
+            flash("Invalid department selection.", "danger")
+            return redirect(url_for("admin.admin_dashboard"))
+
+        try:
+            # 1. Insert into FACULTY table
+            execute_query(
+                "INSERT INTO FACULTY (employee_code, first_name, last_name, email, phone, designation, dept_id) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s);",
+                (employee_code, first_name, last_name, email, phone, designation, dept_id),
+                commit=True,
+            )
+            # Retrieve newly inserted faculty_id
+            fac_row = execute_query("SELECT faculty_id FROM FACULTY WHERE employee_code = %s;", (employee_code,), fetch_one=True)
+            fac_id = fac_row.get("faculty_id") if fac_row else None
+
+            # 2. Insert into USER_ACCOUNT
+            display_name = f"{first_name} {last_name}".strip()
+            execute_query(
+                "INSERT INTO USER_ACCOUNT (username, password_hash, role, entity_id, display_name, email) "
+                "VALUES (%s, %s, %s, %s, %s, %s) "
+                "ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = VALUES(role), entity_id = VALUES(entity_id), display_name = VALUES(display_name);",
+                (employee_code, password, "faculty", fac_id, display_name, email),
+                commit=True,
+            )
+            flash(f"Faculty {display_name} ({employee_code}) successfully added to database and login account created.", "success")
+        except Exception as e:
+            flash(f"Failed to add faculty: {str(e)}", "danger")
+
+    elif role in ("admin", "accounts", "warden"):
+        username = (request.form.get("username") or "").strip()
+        display_name = (request.form.get("display_name") or username).strip()
+        email = (request.form.get("email_staff") or request.form.get("email") or f"{username}@vit.ac.in").strip()
+
+        if not username:
+            flash("Username is required.", "danger")
+            return redirect(url_for("admin.admin_dashboard"))
+
+        try:
+            execute_query(
+                "INSERT INTO USER_ACCOUNT (username, password_hash, role, entity_id, display_name, email) "
+                "VALUES (%s, %s, %s, NULL, %s, %s) "
+                "ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = VALUES(role), display_name = VALUES(display_name), email = VALUES(email);",
+                (username, password, role, display_name, email),
+                commit=True,
+            )
+            flash(f"{role.capitalize()} user account '{username}' created successfully.", "success")
+        except Exception as e:
+            flash(f"Failed to create user account: {str(e)}", "danger")
+
+    else:
+        flash(f"Unsupported role: {role}", "danger")
+
+    return redirect(url_for("admin.admin_dashboard"))
+
 

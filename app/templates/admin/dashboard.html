@@ -314,4 +314,259 @@
     </table>
   </div>
 </div>
+<!-- Add Institutional User & Entity Account Form Card -->
+<div class="card">
+  <div class="card-header">
+    <h3>Add Institutional User &amp; Entity Account</h3>
+    <div class="header-meta">Database Entity Synchronization &amp; User Credential Provisioning</div>
+  </div>
+
+  <form method="POST" action="/admin/users/add" id="addUserForm" style="margin-top: 14px;">
+    <!-- Step 1: Select Role -->
+    <div style="max-width: 320px; margin-bottom: 20px;">
+      <label for="roleSelector" class="form-label" style="font-weight: 600;">Target Institutional Role *</label>
+      <select id="roleSelector" name="role" class="form-control" onchange="switchUserRoleForm(this.value)" required>
+        <option value="student" selected>Student (Syncs with STUDENT Table)</option>
+        <option value="faculty">Faculty Member (Syncs with FACULTY Table)</option>
+        <option value="admin">System Administrator (Admin Access)</option>
+        <option value="accounts">Accounts / Finance Officer (Bursar)</option>
+        <option value="warden">Hostel Warden (Facilities Manager)</option>
+      </select>
+    </div>
+
+    <!-- Student Specific Fields (Shown when Role == Student) -->
+    <div id="studentFormSection">
+      <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); margin-bottom: 12px;">
+        Student Entity Attributes (Stored in <code class="mono">STUDENT</code> &amp; <code class="mono">USER_ACCOUNT</code>)
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+        <div>
+          <label for="stu_reg_no" class="form-label">Registration Number *</label>
+          <input type="text" id="stu_reg_no" name="reg_no" class="form-control mono" placeholder="e.g. 25BCE1001" required>
+        </div>
+        <div>
+          <label for="stu_first_name" class="form-label">First Name *</label>
+          <input type="text" id="stu_first_name" name="first_name" class="form-control" placeholder="e.g. Ananya" required>
+        </div>
+        <div>
+          <label for="stu_last_name" class="form-label">Last Name *</label>
+          <input type="text" id="stu_last_name" name="last_name" class="form-control" placeholder="e.g. Sharma" required>
+        </div>
+        <div>
+          <label for="stu_email" class="form-label">Email Address *</label>
+          <input type="email" id="stu_email" name="email" class="form-control mono" placeholder="e.g. ananya@vitstudent.ac.in" required>
+        </div>
+        <div>
+          <label for="stu_dob" class="form-label">Date of Birth *</label>
+          <input type="date" id="stu_dob" name="dob" class="form-control" value="2005-06-15" required>
+        </div>
+        <div>
+          <label for="stu_gender" class="form-label">Gender *</label>
+          <select id="stu_gender" name="gender" class="form-control" required>
+            <option value="M">Male (M)</option>
+            <option value="F">Female (F)</option>
+          </select>
+        </div>
+        <div>
+          <label for="stu_cgpa" class="form-label">Initial CGPA</label>
+          <input type="number" id="stu_cgpa" step="0.01" min="0.00" max="10.00" name="cgpa" class="form-control mono" value="8.50">
+        </div>
+        <div>
+          <label for="stu_prog" class="form-label">Degree Programme *</label>
+          <select id="stu_prog" name="programme_id" class="form-control" required>
+            {% for p in progs %}
+            <option value="{{ p.programme_id }}">{{ p.programme_code }} &mdash; {{ p.programme_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="stu_advisor" class="form-label">Faculty Advisor</label>
+          <select id="stu_advisor" name="advisor_id" class="form-control">
+            <option value="">None (Unassigned)</option>
+            {% for f in faculty %}
+            <option value="{{ f.faculty_id }}">{{ f.employee_code }} &mdash; {{ f.first_name }} {{ f.last_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="stu_room" class="form-label">Hostel Room</label>
+          <select id="stu_room" name="room_id" class="form-control">
+            <option value="">Day Scholar (Non-Resident)</option>
+            {% for r in rooms %}
+            <option value="{{ r.room_id }}">{{ r.room_number }} ({{ r.block_name }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="stu_pwd" class="form-label">Account Password *</label>
+          <input type="password" id="stu_pwd" name="password" class="form-control" placeholder="Create login password" value="password" required>
+        </div>
+      </div>
+    </div>
+
+    <!-- Faculty Specific Fields (Shown when Role == Faculty) -->
+    <div id="facultyFormSection" style="display: none;">
+      <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); margin-bottom: 12px;">
+        Faculty Entity Attributes (Stored in <code class="mono">FACULTY</code> &amp; <code class="mono">USER_ACCOUNT</code>)
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+        <div>
+          <label for="fac_code" class="form-label">Employee Code *</label>
+          <input type="text" id="fac_code" name="employee_code" class="form-control mono" placeholder="e.g. EMP1004">
+        </div>
+        <div>
+          <label for="fac_first_name" class="form-label">First Name *</label>
+          <input type="text" id="fac_first_name" name="first_name_fac" class="form-control" placeholder="e.g. Suresh">
+        </div>
+        <div>
+          <label for="fac_last_name" class="form-label">Last Name *</label>
+          <input type="text" id="fac_last_name" name="last_name_fac" class="form-control" placeholder="e.g. Natarajan">
+        </div>
+        <div>
+          <label for="fac_email" class="form-label">Email Address *</label>
+          <input type="email" id="fac_email" name="email_fac" class="form-control mono" placeholder="e.g. suresh@vit.ac.in">
+        </div>
+        <div>
+          <label for="fac_phone" class="form-label">Phone Number *</label>
+          <input type="tel" id="fac_phone" name="phone" class="form-control mono" placeholder="e.g. 9876543215">
+        </div>
+        <div>
+          <label for="fac_desig" class="form-label">Designation *</label>
+          <select id="fac_desig" name="designation" class="form-control">
+            <option value="Professor">Professor</option>
+            <option value="Associate Professor" selected>Associate Professor</option>
+            <option value="Assistant Professor">Assistant Professor</option>
+            <option value="Senior Lecturer">Senior Lecturer</option>
+          </select>
+        </div>
+        <div>
+          <label for="fac_dept" class="form-label">Academic Department *</label>
+          <select id="fac_dept" name="dept_id" class="form-control">
+            {% for d in depts %}
+            <option value="{{ d.dept_id }}">{{ d.dept_code }} &mdash; {{ d.dept_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="fac_pwd" class="form-label">Account Password *</label>
+          <input type="password" id="fac_pwd" name="password_fac" class="form-control" placeholder="Create login password" value="password">
+        </div>
+      </div>
+    </div>
+
+    <!-- General Staff Fields (Admin, Accounts, Warden) -->
+    <div id="staffFormSection" style="display: none;">
+      <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); margin-bottom: 12px;">
+        Staff Account Attributes (Stored in <code class="mono">USER_ACCOUNT</code>)
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+        <div>
+          <label for="staff_username" class="form-label">Login Username *</label>
+          <input type="text" id="staff_username" name="username" class="form-control mono" placeholder="e.g. bursar_office">
+        </div>
+        <div>
+          <label for="staff_name" class="form-label">Full Display Name *</label>
+          <input type="text" id="staff_name" name="display_name" class="form-control" placeholder="e.g. Deputy Bursar">
+        </div>
+        <div>
+          <label for="staff_email" class="form-label">Official Email Address</label>
+          <input type="email" id="staff_email" name="email_staff" class="form-control mono" placeholder="e.g. bursar@vit.ac.in">
+        </div>
+        <div>
+          <label for="staff_pwd" class="form-label">Account Password *</label>
+          <input type="password" id="staff_pwd" name="password_staff" class="form-control" placeholder="Create login password" value="password">
+        </div>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary" id="btnSubmitUser">Create User &amp; Entity Record</button>
+  </form>
+</div>
+
+<!-- System User Accounts & Active Logins Table -->
+<div class="card">
+  <div class="card-header">
+    <h3>System User Accounts &amp; Active Logins</h3>
+    <div class="header-meta">Total: {{ all_users | length }} Active User Accounts in <code class="mono">USER_ACCOUNT</code></div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-input-wrap">
+      <input type="text" class="form-control" placeholder="Search user accounts..." data-table-filter="tblUsers">
+    </div>
+    <div class="filter-count" data-row-count="tblUsers">{{ all_users | length }} accounts</div>
+  </div>
+
+  <div class="table-responsive">
+    <table id="tblUsers">
+      <thead>
+        <tr>
+          <th data-sortable>User ID</th>
+          <th data-sortable>Username / ID</th>
+          <th data-sortable>Assigned Role</th>
+          <th data-sortable>Display Name</th>
+          <th data-sortable>Email Address</th>
+          <th data-sortable>Entity ID</th>
+          <th data-sortable>Created Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in all_users %}
+        <tr>
+          <td class="mono">{{ u.user_id }}</td>
+          <td class="mono"><strong>{{ u.username }}</strong></td>
+          <td>
+            {% set r = u.role | lower %}
+            <span class="badge {{ 'badge-success' if r == 'admin' else ('badge-info' if r in ['faculty', 'student'] else 'badge-warning') }}">
+              {{ u.role | upper }}
+            </span>
+          </td>
+          <td>{{ u.display_name if u.display_name else '&mdash;' }}</td>
+          <td class="mono">{{ u.email if u.email else '&mdash;' }}</td>
+          <td class="mono">{{ u.entity_id if u.entity_id else '&mdash;' }}</td>
+          <td class="mono">{{ u.created_at }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No user accounts found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function switchUserRoleForm(role) {
+  var sSec = document.getElementById('studentFormSection');
+  var fSec = document.getElementById('facultyFormSection');
+  var stSec = document.getElementById('staffFormSection');
+
+  // Student inputs
+  var stuInputs = sSec.querySelectorAll('input, select');
+  var facInputs = fSec.querySelectorAll('input, select');
+  var staffInputs = stSec.querySelectorAll('input, select');
+
+  if (role === 'student') {
+    sSec.style.display = 'block';
+    fSec.style.display = 'none';
+    stSec.style.display = 'none';
+    stuInputs.forEach(function(el) { if (el.id !== 'stu_advisor' && el.id !== 'stu_room' && el.id !== 'stu_cgpa') el.required = true; });
+    facInputs.forEach(function(el) { el.required = false; });
+    staffInputs.forEach(function(el) { el.required = false; });
+  } else if (role === 'faculty') {
+    sSec.style.display = 'none';
+    fSec.style.display = 'block';
+    stSec.style.display = 'none';
+    stuInputs.forEach(function(el) { el.required = false; });
+    facInputs.forEach(function(el) { el.required = true; });
+    staffInputs.forEach(function(el) { el.required = false; });
+  } else {
+    sSec.style.display = 'none';
+    fSec.style.display = 'none';
+    stSec.style.display = 'block';
+    stuInputs.forEach(function(el) { el.required = false; });
+    facInputs.forEach(function(el) { el.required = false; });
+    staffInputs.forEach(function(el) { if (el.id !== 'staff_email') el.required = true; });
+  }
+}
+</script>
 {% endblock %}

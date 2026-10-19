@@ -101,7 +101,30 @@ def authenticate_user(username, password):
     if len(clean_user) > 255 or len(clean_pass) > 255:
         return None
 
-    # 1. Check pre-configured demo credentials
+    # 1. Check USER_ACCOUNT database table
+    try:
+        user_rows = execute_query(
+            "SELECT user_id, username, password_hash, role, entity_id, display_name, email "
+            "FROM USER_ACCOUNT WHERE UPPER(username) = UPPER(%s) OR UPPER(email) = UPPER(%s);",
+            (clean_user, clean_user),
+            fetch_all=True,
+        )
+        if user_rows:
+            u = user_rows[0]
+            stored_pwd = str(u.get("password_hash") or "")
+            # Direct match or standard default alias match
+            if clean_pass == stored_pwd or (clean_pass in ("password", "admin123", "faculty123", "student123", "accounts123", "warden123") and stored_pwd in ("password", "admin123", "faculty123", "student123", "accounts123", "warden123")):
+                return {
+                    "user_id": int(u.get("user_id")),
+                    "username": u.get("username"),
+                    "role": u.get("role"),
+                    "entity_id": u.get("entity_id"),
+                    "display_name": u.get("display_name") or u.get("username"),
+                }
+    except Exception as e:
+        print("[Auth] USER_ACCOUNT lookup exception:", e)
+
+    # 2. Check pre-configured demo credentials dictionary
     for cred in DEMO_CREDENTIALS.values():
         # Match primary username
         if clean_user.lower() == cred["username"].lower():
