@@ -83,3 +83,21 @@ INSERT INTO FEE_PAYMENT (student_id, invoice_no, total_amount, paid_amount, due_
 (2, 'INV-2026-002', 205000.00, 205000.00, '2026-08-10', 'PAID', '2026-08-05'),
 (3, 'INV-2026-003', 195000.00, 100000.00, '2026-08-10', 'PARTIAL', '2026-08-08'),
 (4, 'INV-2026-004', 185000.00, 0.00, '2026-08-10', 'OVERDUE', NULL);
+
+-- 13. USER_ACCOUNT (Authentication & System Access)
+INSERT INTO USER_ACCOUNT (user_id, username, password_hash, role, entity_id, display_name, email) VALUES
+(1, 'admin', 'admin123', 'admin', NULL, 'System Administrator', 'admin@vit.ac.in'),
+(2, 'faculty', 'faculty123', 'faculty', 1, 'Dr. Ramesh Kumar', 'ramesh.kumar@vit.ac.in'),
+(3, 'student', 'student123', 'student', 1, 'Jacob Jean', 'jacob.jean2025@vitstudent.ac.in'),
+(4, 'accounts', 'accounts123', 'accounts', NULL, 'University Bursar', 'accounts@vit.ac.in'),
+(5, 'warden', 'warden123', 'warden', NULL, 'Chief Hostel Warden', 'warden@vit.ac.in'),
+(6, 'EMP1001', 'password', 'faculty', 1, 'Dr. Ramesh Kumar', 'ramesh.kumar@vit.ac.in'),
+(7, 'EMP1002', 'password', 'faculty', 2, 'Dr. Priya Sundaram', 'priya.sundaram@vit.ac.in'),
+(8, 'EMP1003', 'password', 'faculty', 3, 'Prof. Anand Venkatesh', 'anand.venkatesh@vit.ac.in'),
+(9, '25BAI0077', 'password', 'student', 1, 'Jacob Jean', 'jacob.jean2025@vitstudent.ac.in'),
+(10, '25BCE0634', 'password', 'student', 2, 'Aradhya Jain', 'aradhya.jain2025@vitstudent.ac.in'),
+(11, '25BAI0030', 'password', 'student', 3, 'Krrish Pare', 'krrish.pare2025@vitstudent.ac.in'),
+(12, '25ECE0122', 'password', 'student', 4, 'Nikhil Sharma', 'nikhil.sharma2025@vitstudent.ac.in'),
+(13, '25BCE0899', 'password', 'student', 5, 'Sneha Rao', 'sneha.rao2025@vitstudent.ac.in')
+ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash), role=VALUES(role), display_name=VALUES(display_name);
+
